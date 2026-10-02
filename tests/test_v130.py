@@ -324,3 +324,35 @@ class TestTransportHook(unittest.TestCase):
             with self.assertRaises(cf.CloudflareError) as cm:
                 cf._req("tok", "GET", "/accounts")
         self.assertIn("网络错误", str(cm.exception))
+
+
+class TestTokenVerify(unittest.TestCase):
+    def test_verify_token(self):
+        with mock.patch.object(
+            cf.urllib.request, "urlopen",
+            return_value=_FakeResp({
+                "success": True,
+                "result": {"id": "t1", "status": "active",
+                           "expires_on": "2027-01-01T00:00:00Z"},
+            }),
+        ):
+            info = cf.verify_token("tok")
+        self.assertEqual(info["status"], "active")
+
+    def test_list_projects(self):
+        with mock.patch.object(
+            cf.urllib.request, "urlopen",
+            return_value=_FakeResp(
+                {"success": True, "result": [{"name": "p1"}]}
+            ),
+        ):
+            projs = cf.list_projects("tok", "acc1")
+        self.assertEqual(projs[0]["name"], "p1")
+
+    def test_empty_accounts_ok(self):
+        # /accounts 返回空列表不再抛错，由上层决定手动填 Account ID
+        with mock.patch.object(
+            cf.urllib.request, "urlopen",
+            return_value=_FakeResp({"success": True, "result": []}),
+        ):
+            self.assertEqual(cf.list_accounts("tok"), [])

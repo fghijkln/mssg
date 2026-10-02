@@ -1,5 +1,15 @@
 # 更新日志
 
+## 0.13.3（2026-10-02）
+
+修 Token 有效但 `/accounts` 返回空列表导致连接失败：
+
+- 连接时先调 `/user/tokens/verify` 验活（无效 Token 直接报错）
+- 账号列表为空时不再失败，App 引导手动填 Account ID
+  （dashboard 地址栏 `dash.cloudflare.com/` 后面那串字符）
+- 新增 `cf_set_account`（填入后用项目列表校验 Token 可用性）
+
+## 
 ## 0.13.2（2026-10-02）
 
 修部分手机直连 IP 也被拦（`[Errno 1] Operation not permitted`）：

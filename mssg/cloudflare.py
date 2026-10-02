@@ -218,6 +218,20 @@ def list_accounts(token):
     return [{"id": a["id"], "name": a.get("name", "")} for a in result]
 
 
+def verify_token(token):
+    """校验 Token 本身是否有效。返回 {"id","status","expires_on"}。"""
+    payload = _req(token, "GET", "/user/tokens/verify")
+    return _check(payload, "校验 Token")
+
+
+def list_projects(token, account_id):
+    """列出该账号下的 Pages 项目。"""
+    payload = _req(
+        token, "GET", "/accounts/%s/pages/projects" % account_id
+    )
+    return _check(payload, "获取 Pages 项目列表")
+
+
 def get_project(token, account_id, name):
     """项目不存在时返回 None。"""
     try:
