@@ -716,3 +716,15 @@
   含 feed 链接与分页导航；mssg.toml 注释清晰。
 - 无代码改动。
 
+## 迭代 82 — 中文标签页 HTTP 404（约 16:40）
+
+- 端到端测试发现**真 bug**：标签文件名用 `quote(tag)` 百分号编码
+  （如 `%E6%BC%94%E7%A4%BA.html`），浏览器请求时 HTTP 服务器会 URL 解码，
+  查找 `演示.html` → 404。中文标签页实际无法访问。
+- 修：新增 `_tag_slug()`——保留 Unicode 可读性，只中和 `/` `\` 路径分隔符；
+  不同标签撞 slug 时加 `-2`/`-3` 后缀；移除无用的 quote 导入。
+- 更新测试 test_chinese_tag_url_quoted → test_chinese_tag_url，
+  新增 test_tag_slug_collision。测试 98/98 全绿（exit=0）。
+- HTTP 实测：`/tags/%E6%BC%94%E7%A4%BA.html` → 200 OK。
+- 提交并推送。
+

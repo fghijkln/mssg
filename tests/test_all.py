@@ -438,6 +438,17 @@ class TestFrontMatter(unittest.TestCase):
         self.assertEqual(meta["标题"], "你好")
         self.assertEqual(meta["title"], "T")
 
+    def test_empty_date_falls_back_to_mtime(self):
+        # date: 留空时应回退到文件 mtime，而不是显示 []
+        with tempfile.TemporaryDirectory() as tmp:
+            root = new_site(os.path.join(tmp, "demo"))
+            (root / "content" / "a.md").write_text(
+                "---\ntitle: A\ndate:\n---\n\nx\n", encoding="utf-8"
+            )
+            Site(root).build()
+            html = (root / "public" / "archive.html").read_text(encoding="utf-8")
+            self.assertNotIn("<h2>[]</h2>", html)
+
     def test_scalar_tag(self):
         # tags 写成标量（如 tags: 5）不应崩构建，视为单个标签
         with tempfile.TemporaryDirectory() as tmp:

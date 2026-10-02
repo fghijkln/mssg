@@ -339,7 +339,7 @@ class Site:
         meta, body = _split_fm(text)
         title = meta.get("title") or self._first_heading(body) or md_path.stem
         date = meta.get("date")
-        if date is None:
+        if not date:
             date = time.strftime(
                 "%Y-%m-%d", time.localtime(md_path.stat().st_mtime)
             )
