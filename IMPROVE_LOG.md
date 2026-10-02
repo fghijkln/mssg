@@ -394,3 +394,20 @@
   测试 80/80 全绿；fuzz 种子 135791，1500 用例 0 问题。
 - 提交并推送，push 前测试全绿。
 
+## 迭代 39 — XML 校验与 sitemap 查漏（约 22:05）
+
+- 用 xml.dom.minidom 校验 example 站点 feed.xml/sitemap.xml 合法；
+  Atom entry 必需元素（title/id/updated）齐全。
+- 校验时发现不一致：sitemap 收录了标签页却漏了 archive.html → 补上。
+- 新增测试 test_sitemap_includes_archive_and_tags。
+  测试 81/81 全绿；fuzz 种子 246810，1500 用例 0 问题。
+- 提交并推送，push 前测试全绿。
+
+## 迭代 40 — 回归测试有效性验证（约 22:20）
+
+- 抽查 3 个关键测试（test_inline_quotes_escaped、test_build_reloads_config、
+  test_deleted_page_cleanup）：手动重插 bug 后 3 个全部变红，
+  确认它们是真回归测试而非摆设。恢复后 81/81 全绿。
+- 附带确认：测试套件在任意工作目录下均可运行。
+- 无代码改动。
+
