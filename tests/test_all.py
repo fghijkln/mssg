@@ -403,6 +403,62 @@ class TestBuild(unittest.TestCase):
             sm = (root / "public" / "sitemap.xml").read_text(encoding="utf-8")
             self.assertEqual(sm.count("<loc>/index.html</loc>"), 1)
 
+    def _make_paged_site(self, tmp, n=5, per_page=2):
+        root = new_site(os.path.join(tmp, "demo"))
+        for i in range(n):
+            (root / "content" / ("p%d.md" % i)).write_text(
+                "---\ntitle: 文章%d\ndate: 2026-09-%02d\ntags: [t]\n---\n\n正文%d\n"
+                % (i, i + 1, i),
+                encoding="utf-8",
+            )
+        toml = (root / "mssg.toml").read_text(encoding="utf-8")
+        (root / "mssg.toml").write_text(
+            toml.replace("# per_page = 5", "per_page = %d" % per_page),
+            encoding="utf-8",
+        )
+        return root
+
+    def test_pagination_index(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._make_paged_site(tmp, n=5, per_page=2)
+            Site(root).build()
+            # hello + 5 篇 = 6 页内容 → 3 页
+            self.assertTrue((root / "public" / "page" / "2.html").exists())
+            self.assertTrue((root / "public" / "page" / "3.html").exists())
+            self.assertFalse((root / "public" / "page" / "4.html").exists())
+            index = (root / "public" / "index.html").read_text(encoding="utf-8")
+            self.assertIn('href="/page/2.html"', index)
+            self.assertIn("1 / 3", index)
+            self.assertNotIn("上一页", index)
+            p3 = (root / "public" / "page" / "3.html").read_text(encoding="utf-8")
+            self.assertIn('href="/page/2.html"', p3)  # 上一页
+            self.assertNotIn("下一页", p3)
+            sm = (root / "public" / "sitemap.xml").read_text(encoding="utf-8")
+            self.assertIn("<loc>/page/2.html</loc>", sm)
+
+    def test_pagination_tag(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._make_paged_site(tmp, n=3, per_page=2)
+            Site(root).build()
+            t2 = root / "public" / "tags" / "t" / "2.html"
+            self.assertTrue(t2.exists())
+            html = t2.read_text(encoding="utf-8")
+            self.assertIn('href="/tags/t.html"', html)  # 上一页回到第一页
+            self.assertIn("2 / 2", html)
+
+    def test_pagination_per_page_change_cleans(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._make_paged_site(tmp, n=5, per_page=2)
+            Site(root).build()
+            self.assertTrue((root / "public" / "page" / "3.html").exists())
+            toml = (root / "mssg.toml").read_text(encoding="utf-8")
+            (root / "mssg.toml").write_text(
+                toml.replace("per_page = 2", "per_page = 10"), encoding="utf-8"
+            )
+            Site(root).build()
+            self.assertFalse((root / "public" / "page" / "2.html").exists())
+            self.assertFalse((root / "public" / "page" / "3.html").exists())
+
     def test_static_orphan_cleanup(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = new_site(os.path.join(tmp, "demo"))

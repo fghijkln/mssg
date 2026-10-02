@@ -19,13 +19,22 @@ from .frontmatter import split as _split_fm
 
 _FIRST_HEADING = re.compile(r"^#{1,6}\s+(.+?)\s*#*\s*$", re.M)
 
+_PAGINATION_NAV = (
+    "{% if pagination.multiple %}<nav>"
+    '{% if pagination.has_prev %}<a href="{{ pagination.prev_url }}">上一页</a>'
+    "{% endif %}"
+    "<span>{{ pagination.page }} / {{ pagination.total_pages }}</span>"
+    '{% if pagination.has_next %}<a href="{{ pagination.next_url }}">下一页</a>'
+    "{% endif %}</nav>{% endif %}"
+)
+
 _TAG_FALLBACK = (
     "<!doctype html><html><head><meta charset=utf-8>"
     "<title>标签：{{ tag }}</title></head><body>"
     "<h1>标签：{{ tag }}</h1><ul>"
     "{% for p in pages %}"
     '<li>{{ p.date }} <a href="/{{ p.url }}">{{ p.title }}</a></li>'
-    "{% endfor %}</ul></body></html>"
+    "{% endfor %}</ul>" + _PAGINATION_NAV + "</body></html>"
 )
 
 _ARCHIVE_FALLBACK = (
@@ -36,6 +45,41 @@ _ARCHIVE_FALLBACK = (
     '<li>{{ p.date }} <a href="/{{ p.url }}">{{ p.title }}</a></li>'
     "{% endfor %}</ul>{% endfor %}</body></html>"
 )
+
+_INDEX_FALLBACK = (
+    "<!doctype html><html><head><meta charset=utf-8>"
+    "<title>{{ site.title }}</title></head><body>"
+    "<h1>{{ site.title }}</h1><ul>"
+    "{% for p in pages %}"
+    '<li>{{ p.date }} <a href="/{{ p.url }}">{{ p.title }}</a></li>'
+    "{% endfor %}</ul>" + _PAGINATION_NAV + "</body></html>"
+)
+
+
+def _paginate(items: list, per_page) -> list[list]:
+    """按每页数量切分；per_page <= 0 表示不分页。"""
+    try:
+        per_page = int(per_page or 0)
+    except (TypeError, ValueError):
+        per_page = 0
+    if per_page <= 0:
+        return [list(items)]
+    return [list(items[i : i + per_page]) for i in range(0, len(items), per_page)] or [
+        []
+    ]
+
+
+def _pagination_ctx(page: int, total: int, prev_rel, next_rel) -> dict:
+    """分页上下文（模板变量 pagination）。"""
+    return {
+        "page": page,
+        "total_pages": total,
+        "multiple": total > 1,
+        "has_prev": prev_rel is not None,
+        "has_next": next_rel is not None,
+        "prev_url": "/" + prev_rel if prev_rel else "",
+        "next_url": "/" + next_rel if next_rel else "",
+    }
 
 
 def _sha1_file(path: Path) -> str:
@@ -170,15 +214,24 @@ class Site:
         pages.sort(key=lambda p: p["date"], reverse=True)
         # content/index.md 存在时，它就是首页，不再用自动索引覆盖
         has_home = any(p["url"] == "index.html" for p in pages)
-        if not has_home and (
-            rebuilt_any or not (output_dir / "index.html").exists()
-        ):
-            self._render_index(pages, templates, output_dir)
+        index_made: set = set()
+        if not has_home:
+            index_made = self._render_index(
+                pages, templates, output_dir, rebuilt_any
+            )
+            self._clean_stale(output_dir, cache.get("index_files", []), index_made)
+            cache["index_files"] = sorted(index_made)
+        elif cache.get("index_files"):
+            # 之前生成的分页文件现在不需要了（有了 content/index.md）
+            self._clean_stale(output_dir, cache.pop("index_files"), set())
 
+        tag_made: set = set()
         if b.get("tag_pages", True):
-            made = self._render_tag_pages(pages, templates, output_dir, rebuilt_any)
-            self._clean_stale(output_dir, cache.get("tag_files", []), made)
-            cache["tag_files"] = sorted(made)
+            tag_made = self._render_tag_pages(
+                pages, templates, output_dir, rebuilt_any
+            )
+            self._clean_stale(output_dir, cache.get("tag_files", []), tag_made)
+            cache["tag_files"] = sorted(tag_made)
         elif cache.get("tag_files"):
             self._clean_stale(output_dir, cache.pop("tag_files"), set())
 
@@ -197,7 +250,8 @@ class Site:
             self._clean_stale(output_dir, cache.pop("feed_files"), set())
 
         if b.get("sitemap", True):
-            sm_rel = self._render_sitemap(pages, output_dir, rebuilt_any)
+            extra = sorted((index_made | tag_made) - {"index.html"})
+            sm_rel = self._render_sitemap(pages, output_dir, rebuilt_any, extra)
             self._clean_stale(output_dir, cache.get("sitemap_files", []), {sm_rel})
             cache["sitemap_files"] = [sm_rel]
         elif cache.get("sitemap_files"):
@@ -280,26 +334,46 @@ class Site:
         out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_text(out, encoding="utf-8")
 
-    def _render_index(self, pages: list, templates: dict, output_dir: Path) -> None:
-        ctx = {"site": self.cfg["site"], "pages": pages}
-        if "index.html" in templates:
-            out = _tpl.render_template("index.html", ctx, templates.get)
-        else:
-            out = _tpl.render(
-                "<!doctype html><html><head><meta charset=utf-8>"
-                "<title>{{ site.title }}</title></head><body>"
-                "<h1>{{ site.title }}</h1><ul>"
-                "{% for p in pages %}"
-                '<li>{{ p.date }} <a href="/{{ p.url }}">{{ p.title }}</a></li>'
-                "{% endfor %}</ul></body></html>",
-                ctx,
+    def _render_index(
+        self, pages: list, templates: dict, output_dir: Path, rebuilt_any: bool
+    ) -> set:
+        """渲染首页；per_page > 0 时分页为 page/2.html…，返回相对路径集合。"""
+        per_page = self.cfg["build"].get("per_page", 0)
+        chunks = _paginate(pages, per_page)
+        total = len(chunks)
+        made = set()
+        for i, chunk in enumerate(chunks, start=1):
+            rel = "index.html" if i == 1 else "page/%d.html" % i
+            prev_rel = (
+                None
+                if i == 1
+                else ("index.html" if i == 2 else "page/%d.html" % (i - 1))
             )
-        (output_dir / "index.html").write_text(out, encoding="utf-8")
+            next_rel = "page/%d.html" % (i + 1) if i < total else None
+            ctx = {
+                "site": self.cfg["site"],
+                "pages": chunk,
+                "pagination": _pagination_ctx(i, total, prev_rel, next_rel),
+            }
+            if "index.html" in templates:
+                out = _tpl.render_template("index.html", ctx, templates.get)
+            else:
+                out = _tpl.render(_INDEX_FALLBACK, ctx)
+            dest = output_dir / rel
+            made.add(rel)
+            if rebuilt_any or not dest.exists():
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                dest.write_text(out, encoding="utf-8")
+        return made
 
     def _render_tag_pages(
         self, pages: list, templates: dict, output_dir: Path, rebuilt_any: bool
     ) -> set:
-        """为每个标签生成 tags/<tag>.html，返回生成文件的相对路径集合。"""
+        """为每个标签生成 tags/<tag>.html（分页时还有 tags/<tag>/N.html）。
+
+        返回生成文件的相对路径集合。
+        """
+        per_page = self.cfg["build"].get("per_page", 0)
         by_tag: dict[str, list] = {}
         for p in pages:
             for t in _page_tags(p):
@@ -307,16 +381,38 @@ class Site:
         made = set()
         for tag in sorted(by_tag):
             tpages = sorted(by_tag[tag], key=lambda p: p["date"], reverse=True)
-            ctx = {"site": self.cfg["site"], "tag": tag, "pages": tpages}
-            if "tag.html" in templates:
-                out = _tpl.render_template("tag.html", ctx, templates.get)
-            else:
-                out = _tpl.render(_TAG_FALLBACK, ctx)
-            dest = output_dir / "tags" / (quote(tag, safe="") + ".html")
-            made.add(dest.relative_to(output_dir).as_posix())
-            if rebuilt_any or not dest.exists():
-                dest.parent.mkdir(parents=True, exist_ok=True)
-                dest.write_text(out, encoding="utf-8")
+            chunks = _paginate(tpages, per_page)
+            total = len(chunks)
+            tag_q = quote(tag, safe="")
+            for i, chunk in enumerate(chunks, start=1):
+                if i == 1:
+                    rel = "tags/%s.html" % tag_q
+                    prev_rel = None
+                else:
+                    rel = "tags/%s/%d.html" % (tag_q, i)
+                    prev_rel = (
+                        "tags/%s.html" % tag_q
+                        if i == 2
+                        else "tags/%s/%d.html" % (tag_q, i - 1)
+                    )
+                next_rel = (
+                    "tags/%s/%d.html" % (tag_q, i + 1) if i < total else None
+                )
+                ctx = {
+                    "site": self.cfg["site"],
+                    "tag": tag,
+                    "pages": chunk,
+                    "pagination": _pagination_ctx(i, total, prev_rel, next_rel),
+                }
+                if "tag.html" in templates:
+                    out = _tpl.render_template("tag.html", ctx, templates.get)
+                else:
+                    out = _tpl.render(_TAG_FALLBACK, ctx)
+                dest = output_dir / rel
+                made.add(rel)
+                if rebuilt_any or not dest.exists():
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    dest.write_text(out, encoding="utf-8")
         return made
 
     def _render_archive(
@@ -392,8 +488,10 @@ class Site:
             dest.write_text(out, encoding="utf-8")
         return "feed.xml"
 
-    def _render_sitemap(self, pages: list, output_dir: Path, rebuilt_any: bool) -> str:
-        """生成 sitemap.xml，返回相对路径。"""
+    def _render_sitemap(
+        self, pages: list, output_dir: Path, rebuilt_any: bool, extra=()
+    ) -> str:
+        """生成 sitemap.xml；extra 为分页等附加相对路径。返回相对路径。"""
         base = self.cfg["site"].get("base_url", "").rstrip("/")
 
         def abs_url(rel: str) -> str:
@@ -409,6 +507,11 @@ class Site:
             if p["url"] not in seen:
                 seen.add(p["url"])
                 entries.append((p["url"], p["date"]))
+        index_date = pages[0]["date"] if pages else time.strftime("%Y-%m-%d")
+        for rel in extra:
+            if rel not in seen:
+                seen.add(rel)
+                entries.append((rel, index_date))
         lines = [
             '<?xml version="1.0" encoding="utf-8"?>',
             '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
@@ -463,7 +566,9 @@ def new_site(name: str | Path) -> Path:
     (root / "static").mkdir(parents=True, exist_ok=True)
 
     (root / "mssg.toml").write_text(
-        '[site]\ntitle = "我的小站"\nbase_url = ""\n',
+        '[site]\ntitle = "我的小站"\nbase_url = ""\n'
+        "\n[build]\n# per_page = 5  # 首页/标签页每页篇数；0 或不填则不分页\n"
+        "# 分页文件：首页 page/2.html…，标签页 tags/<tag>/2.html…\n",
         encoding="utf-8",
     )
 
@@ -494,7 +599,14 @@ def new_site(name: str | Path) -> Path:
         "{% block content %}\n<h1>{{ site.title }}</h1>\n<ul>\n"
         "{% for p in pages %}\n"
         '<li>{{ p.date }} <a href="/{{ p.url }}">{{ p.title }}</a></li>\n'
-        "{% endfor %}\n</ul>\n{% endblock %}\n",
+        "{% endfor %}\n</ul>\n"
+        "{% if pagination.multiple %}\n<nav>\n"
+        '{% if pagination.has_prev %}<a href="{{ pagination.prev_url }}">上一页</a>\n'
+        "{% endif %}"
+        "<span>{{ pagination.page }} / {{ pagination.total_pages }}</span>\n"
+        '{% if pagination.has_next %}<a href="{{ pagination.next_url }}">下一页</a>\n'
+        "{% endif %}</nav>\n{% endif %}"
+        "{% endblock %}\n",
         encoding="utf-8",
     )
     (root / "templates" / "tag.html").write_text(
@@ -503,7 +615,14 @@ def new_site(name: str | Path) -> Path:
         "{% block content %}\n<h1>标签：{{ tag }}</h1>\n<ul>\n"
         "{% for p in pages %}\n"
         '<li>{{ p.date }} <a href="/{{ p.url }}">{{ p.title }}</a></li>\n'
-        "{% endfor %}\n</ul>\n{% endblock %}\n",
+        "{% endfor %}\n</ul>\n"
+        "{% if pagination.multiple %}\n<nav>\n"
+        '{% if pagination.has_prev %}<a href="{{ pagination.prev_url }}">上一页</a>\n'
+        "{% endif %}"
+        "<span>{{ pagination.page }} / {{ pagination.total_pages }}</span>\n"
+        '{% if pagination.has_next %}<a href="{{ pagination.next_url }}">下一页</a>\n'
+        "{% endif %}</nav>\n{% endif %}"
+        "{% endblock %}\n",
         encoding="utf-8",
     )
     (root / "templates" / "archive.html").write_text(

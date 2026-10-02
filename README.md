@@ -70,6 +70,9 @@ tag_pages = true            # 是否生成 tags/<tag>.html
 archive_page = true         # 是否生成 archive.html
 feed = true                 # 是否生成 feed.xml（Atom）
 sitemap = true              # 是否生成 sitemap.xml
+per_page = 0                # 首页/标签页每页篇数；0 为不分页
+                            # 分页文件：首页 page/2.html…、标签页 tags/<tag>/2.html…
+                            # （content 下不要建 page/、tags/<tag>/ 同名路径，以免冲突）
 ```
 
 ## CLI 参考
@@ -99,7 +102,12 @@ ATX 标题、段落、`**粗体**`、`*斜体*`、`` `行内代码` ``、`[链�
 - `{% include "part.html" %}` —— 引入模板片段（使用当前上下文；被引入的模板不能用 extends）
 
 模板可用变量：`site`（配置）、`page`（当前页面：title/date/content/url + front matter
-全部字段）、`pages`（首页：全部页面，按日期倒序）。
+全部字段）、`pages`（首页：全部页面，按日期倒序）、`pagination`（分页信息：
+page/total_pages/multiple/has_prev/has_next/prev_url/next_url；
+`pages` 为当前页的文章）。
+- 分页：`[build] per_page = 5` 后，首页第 2 页起为 `page/2.html`…，
+  标签第 2 页起为 `tags/<tag>/2.html`…；分页 URL 自动计入 sitemap；
+  per_page 改动会触发全量重建并清理多余分页文件。
 
 ## 构建特性
 
@@ -134,6 +142,6 @@ python -m unittest discover -s tests
 
 后续想法：
 
-- `{% include %}` 模板片段引入
-- 分页（首页/标签页按 N 篇分页）
+- [x] `{% include %}` 模板片段引入
+- [x] 分页（首页/标签页按 N 篇分页）
 - 多语言站点支持

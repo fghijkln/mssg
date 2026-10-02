@@ -250,3 +250,12 @@
   测试 68/68 全绿；fuzz 种子 97531，2000 用例 0 问题。
 - 提交并推送，push 前测试全绿。
 
+## 迭代 24 — 第三轮 cli.py 审查：构建失败的 traceback（约 18:25）
+
+- 第三轮审查：`_cmd_build`/`_cmd_serve` 未捕获构建异常，
+  模板写坏时用户看到一长串 traceback —— 与项目既定的"CLI 友好报错"方向不符。
+- 修：两处都捕获异常，打印一行"构建失败：…"并返回 1
+  （KeyboardInterrupt 不受影响，仍可 Ctrl-C）。
+- 新增 TestCLI：test_build_error_friendly、test_build_ok_returns_zero。
+  测试 70/70 全绿。提交并推送，push 前测试全绿。
+
