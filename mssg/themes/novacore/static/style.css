@@ -1,0 +1,106 @@
+/* novacore —— 深色科技风（致敬芯片官网气质：深空底 + 电光蓝） */
+:root{
+  --bg:#070b16; --bg2:#0c1226; --card:#101830; --line:rgba(120,150,255,.14);
+  --text:#eef2ff; --muted:#9aa6c7; --accent:#3b82f6; --accent2:#60a5fa;
+  --glow:rgba(59,130,246,.35);
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{background:var(--bg);color:var(--text);
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans SC","PingFang SC","Microsoft YaHei",sans-serif;
+  line-height:1.7}
+.wrap{max-width:1080px;margin:0 auto;padding:0 20px}
+a{color:var(--accent2);text-decoration:none}
+a:hover{text-decoration:underline}
+
+/* 顶栏 */
+.site-header{position:sticky;top:0;z-index:50;background:rgba(7,11,22,.85);
+  backdrop-filter:blur(12px);border-bottom:1px solid var(--line)}
+.site-header .nav{display:flex;align-items:center;gap:28px;padding:14px 20px}
+.brand{font-size:20px;font-weight:800;letter-spacing:.5px;color:#fff !important}
+.brand:hover{text-decoration:none}
+.site-header nav{margin-left:auto;display:flex;gap:4px;align-items:center;flex-wrap:wrap}
+.site-header nav a,.site-header nav .nav-drop>a{color:var(--muted);padding:8px 14px;border-radius:8px;font-size:15px}
+.site-header nav a:hover{color:#fff;background:rgba(255,255,255,.06);text-decoration:none}
+.nav-drop{position:relative}
+.nav-sub{display:none;position:absolute;top:100%;left:0;min-width:180px;background:var(--card);
+  border:1px solid var(--line);border-radius:12px;padding:8px;box-shadow:0 12px 32px rgba(0,0,0,.5)}
+.nav-drop:hover .nav-sub,.nav-drop:focus-within .nav-sub{display:block}
+.nav-sub a{display:block !important}
+.lang-switch{margin-left:8px;font-size:13px;color:var(--muted)}
+.lang-switch a{color:var(--muted);margin:0 4px}
+
+/* 主视觉 */
+.hero{position:relative;overflow:hidden;text-align:center;
+  padding:110px 20px 90px;
+  background:
+    radial-gradient(700px 340px at 50% -60px, var(--glow), transparent 70%),
+    linear-gradient(180deg, var(--bg2), var(--bg))}
+.hero h1{font-size:clamp(34px,6vw,58px);margin:0 0 18px;font-weight:800;letter-spacing:1px;
+  background:linear-gradient(180deg,#fff,#bcd0ff);-webkit-background-clip:text;background-clip:text;color:transparent}
+.hero .lede{color:var(--muted);font-size:clamp(16px,2.4vw,20px);max-width:640px;margin:0 auto 34px}
+.cta-row{display:flex;gap:14px;justify-content:center;flex-wrap:wrap}
+.btn{display:inline-block;background:var(--accent);color:#fff !important;font-weight:700;
+  padding:13px 34px;border-radius:999px;box-shadow:0 6px 24px var(--glow);transition:transform .15s}
+.btn:hover{transform:translateY(-2px);text-decoration:none}
+.btn.ghost{background:transparent;border:1px solid var(--line);box-shadow:none;color:var(--text) !important}
+
+/* 三支柱卡片 */
+.features{padding:70px 0}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:20px}
+.card{background:linear-gradient(180deg,rgba(255,255,255,.04),rgba(255,255,255,.01));
+  border:1px solid var(--line);border-radius:18px;padding:30px 26px;transition:transform .18s,border-color .18s}
+.card:hover{transform:translateY(-4px);border-color:rgba(96,165,250,.45)}
+.card h3{margin:0 0 10px;font-size:20px;color:#fff}
+.card h3::before{content:"";display:block;width:34px;height:4px;border-radius:2px;
+  background:linear-gradient(90deg,var(--accent),var(--accent2));margin-bottom:14px}
+.card p{margin:0;color:var(--muted);font-size:15px}
+
+/* 新闻 / 列表 */
+.news{padding:20px 0 80px}
+.news h2,.page-head h1{font-size:28px;color:#fff;margin:0 0 24px}
+.post-list{list-style:none;margin:0;padding:0}
+.post-list li{padding:14px 4px;border-bottom:1px solid var(--line);display:flex;gap:16px;align-items:baseline}
+.post-list .date{color:var(--muted);font-size:13px;white-space:nowrap;font-variant-numeric:tabular-nums}
+.post-list a{color:var(--text);font-size:16px}
+.post-list a:hover{color:var(--accent2)}
+.pager{display:flex;gap:18px;align-items:center;margin-top:26px;color:var(--muted)}
+
+/* 文章页 */
+.page-head{padding:70px 0 10px;text-align:center}
+.page-head .meta{color:var(--muted);font-size:14px}
+.prose{max-width:760px;margin:0 auto;padding:30px 20px 80px}
+.prose h1,.prose h2,.prose h3{color:#fff;line-height:1.4}
+.prose h2{margin-top:2em;border-bottom:1px solid var(--line);padding-bottom:8px}
+.prose img{max-width:100%;border-radius:12px}
+.prose pre{background:#0a0f22;border:1px solid var(--line);border-radius:12px;padding:18px;overflow:auto}
+.prose code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.9em}
+.prose :not(pre)>code{background:rgba(96,165,250,.12);color:#bcd0ff;padding:2px 7px;border-radius:6px}
+.prose table{border-collapse:collapse;width:100%}
+.prose th,.prose td{border:1px solid var(--line);padding:10px 14px;text-align:left}
+.prose th{background:rgba(255,255,255,.04)}
+.prose blockquote{border-left:3px solid var(--accent);margin:1.5em 0;padding:4px 18px;color:var(--muted)}
+
+/* 归档 / 标签 / 搜索 */
+.arch-year{color:#fff;margin:34px 0 8px;font-size:22px}
+.tag-cloud{display:flex;flex-wrap:wrap;gap:10px;padding:30px 0}
+.tag-cloud a{background:var(--card);border:1px solid var(--line);border-radius:999px;padding:8px 18px;color:var(--text)}
+.search-box{max-width:640px;margin:30px auto;display:flex;gap:10px}
+.search-box input{flex:1;background:var(--card);border:1px solid var(--line);border-radius:12px;
+  padding:13px 18px;color:var(--text);font-size:16px}
+.search-box button{background:var(--accent);color:#fff;border:none;border-radius:12px;padding:0 26px;font-size:16px;cursor:pointer}
+
+/* 联系 */
+.contact-card{max-width:640px;margin:40px auto;background:var(--card);border:1px solid var(--line);
+  border-radius:18px;padding:36px}
+.contact-card p{color:var(--muted)}
+
+/* 页脚 */
+.site-footer{border-top:1px solid var(--line);padding:34px 0;color:var(--muted);font-size:14px;text-align:center}
+.site-footer a{color:var(--muted)}
+
+@media (max-width:640px){
+  .hero{padding:80px 20px 64px}
+  .site-header .nav{gap:12px}
+  .site-header nav a{padding:8px 8px;font-size:14px}
+}

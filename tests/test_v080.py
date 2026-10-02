@@ -293,7 +293,9 @@ class TestModuleSplit(unittest.TestCase):
         # 拆分后 API 保持可用
         from mssg import scaffold, themes, images as _images
 
-        self.assertEqual(set(themes.available_themes()), {"company", "minimal"})
+        self.assertEqual(
+            set(themes.available_themes()), {"company", "minimal", "novacore"}
+        )
         self.assertTrue(hasattr(scaffold, "new_site"))
         self.assertTrue(hasattr(_images, "copy_static_file"))
         # site.py 重导出

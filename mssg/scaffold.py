@@ -41,7 +41,7 @@ def new_site(name: str | Path, theme: str = "company") -> Path:
 title = "星尘科技"
 description = "星尘科技专注于云端协作工具，帮小团队把想法快速变成产品。"
 base_url = ""
-theme = "%s"  # 内置主题：company（公司站）/ minimal（极简风）；templates/ 下放同名文件可覆盖
+theme = "%s"  # 内置主题：company（公司站）/ minimal（极简风）/ novacore（深色科技风）；templates/ 下放同名文件可覆盖
 
 # 导航菜单（按 weight 排序；children 可嵌套多级，hover/聚焦时下拉展开）
 [[site.menu]]

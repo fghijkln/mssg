@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}分类：{{ category }} - {{ site.title }}{% endblock %}
+{% block content %}
+<div class="wrap article">
+<h1>分类：{{ category }}</h1>
+<ul class="post-list">
+{% for p in pages %}
+<li><span class="date">{{ p.date }}</span> <a href="/{{ p.url }}">{{ p.title }}</a></li>
+{% endfor %}
+</ul>
+</div>
+{% endblock %}
