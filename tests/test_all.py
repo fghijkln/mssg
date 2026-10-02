@@ -661,6 +661,24 @@ class TestCLI(unittest.TestCase):
             root = new_site(os.path.join(tmp, "demo"))
             self.assertEqual(self._run_build(root), 0)
 
+    def test_build_reloads_config(self):
+        # 同一个 Site 对象：改 mssg.toml 后再次 build 要用新配置
+        # （serve 的文件监听就靠这个）
+        with tempfile.TemporaryDirectory() as tmp:
+            root = new_site(os.path.join(tmp, "demo"))
+            site = Site(root)
+            site.build()
+            index = (root / "public" / "index.html").read_text(encoding="utf-8")
+            self.assertIn("我的小站", index)
+            toml = (root / "mssg.toml").read_text(encoding="utf-8")
+            (root / "mssg.toml").write_text(
+                toml.replace('title = "我的小站"', 'title = "新标题"'),
+                encoding="utf-8",
+            )
+            site.build()
+            index = (root / "public" / "index.html").read_text(encoding="utf-8")
+            self.assertIn("新标题", index)
+
 
 if __name__ == "__main__":
     unittest.main()

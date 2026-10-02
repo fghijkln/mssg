@@ -65,18 +65,22 @@ def _snapshot(paths: list) -> dict:
     return snap
 
 
-def _watch_and_rebuild(site: Site, args, stop_event: threading.Event) -> None:
-    """轮询监听内容/模板/静态资源/配置变化，变化时自动重建。"""
-    b = site.cfg["build"]
-    watched = [
+def _watched_paths(site: Site, args) -> list:
+    """按当前配置计算监听路径（mssg.toml 改了目录配置也能跟上）。"""
+    b = Site(str(site.root), config=args.config).cfg["build"]
+    return [
         os.path.join(str(site.root), b["content_dir"]),
         os.path.join(str(site.root), b["template_dir"]),
         os.path.join(str(site.root), b["static_dir"]),
         os.path.join(str(site.root), args.config),
     ]
-    last = _snapshot(watched)
+
+
+def _watch_and_rebuild(site: Site, args, stop_event: threading.Event) -> None:
+    """轮询监听内容/模板/静态资源/配置变化，变化时自动重建。"""
+    last = _snapshot(_watched_paths(site, args))
     while not stop_event.wait(0.5):
-        cur = _snapshot(watched)
+        cur = _snapshot(_watched_paths(site, args))
         if cur == last:
             continue
         last = cur

@@ -122,6 +122,7 @@ def _page_tags(page: dict) -> list:
 class Site:
     def __init__(self, root: str | Path, config: str = "mssg.toml"):
         self.root = Path(root)
+        self.config_name = config
         self.config_path = self.root / config
         self.cfg = self._load_config(config)
 
@@ -147,6 +148,8 @@ class Site:
     # -- 对外接口 ------------------------------------------------------
 
     def build(self, force: bool = False, include_drafts: bool = False) -> dict:
+        # 每次构建都重读配置：serve 监听时修改 mssg.toml 能立即生效
+        self.cfg = self._load_config(self.config_name)
         b = self.cfg["build"]
         include_drafts = include_drafts or b.get("drafts", False)
         content_dir = self.root / b["content_dir"]
