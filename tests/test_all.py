@@ -293,6 +293,25 @@ class TestTemplate(unittest.TestCase):
         with self.assertRaises(ValueError):
             template.render_template("a.html", {}, loader)
 
+    def test_include_complex_cycle_and_diamond(self):
+        # 三元环报出完整链条
+        t = {
+            "a": 'A{% include "b" %}',
+            "b": 'B{% include "c" %}',
+            "c": 'C{% include "a" %}',
+        }
+        with self.assertRaises(ValueError) as cm:
+            template.render_template("a", {}, t.get)
+        self.assertIn("include 循环", str(cm.exception))
+        # 菱形（非循环）正常渲染
+        t3 = {
+            "a": 'A{% include "b" %}{% include "c" %}',
+            "b": 'B{% include "d" %}',
+            "c": 'C{% include "d" %}',
+            "d": "D",
+        }
+        self.assertEqual(template.render_template("a", {}, t3.get), "ABDCD")
+
     def test_include_with_extends_error(self):
         templates = {
             "page.html": '{% include "child.html" %}',
