@@ -193,6 +193,10 @@ mssg --version
 （`http://127.0.0.1:8902/?token=xxx`），首次访问后种 cookie；
 `--token` 可指定固定 token，`--no-auth` 关闭鉴权（仅自己电脑上用）。
 
+手机上也能跑：Android 装 Termux 后 `pip install mssg`，
+`mssg admin` 用手机浏览器打开即可写作发布——Hugo 做不到的事。
+详见 [docs/termux.md](docs/termux.md)。
+
 ## Markdown（Python-Markdown）
 
 完整 Markdown 语法，外加扩展：
