@@ -114,10 +114,12 @@ def _atom_date(value) -> str:
 
 
 def _page_tags(page: dict) -> list:
-    """取页面的标签列表（支持列表或逗号分隔字符串）。"""
+    """取页面的标签列表（支持列表、逗号分隔字符串或单个标量）。"""
     tags = page.get("tags", [])
     if isinstance(tags, str):
         tags = [t.strip() for t in tags.split(",")]
+    elif not isinstance(tags, (list, tuple)):
+        tags = [tags]
     return [str(t).strip() for t in tags if str(t).strip()]
 
 

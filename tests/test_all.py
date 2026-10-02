@@ -438,6 +438,17 @@ class TestFrontMatter(unittest.TestCase):
         self.assertEqual(meta["标题"], "你好")
         self.assertEqual(meta["title"], "T")
 
+    def test_scalar_tag(self):
+        # tags 写成标量（如 tags: 5）不应崩构建，视为单个标签
+        with tempfile.TemporaryDirectory() as tmp:
+            root = new_site(os.path.join(tmp, "demo"))
+            (root / "content" / "a.md").write_text(
+                "---\ntitle: A\ndate: 2026-01-01\ntags: 5\n---\n\nx\n",
+                encoding="utf-8",
+            )
+            Site(root).build()
+            self.assertTrue((root / "public" / "tags" / "5.html").exists())
+
     def test_quoted_comma_list(self):
         meta, _ = split('---\ntags: ["a,b", c]\n---\n')
         self.assertEqual(meta["tags"], ["a,b", "c"])
