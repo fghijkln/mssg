@@ -157,6 +157,30 @@ class TestCloudflare(unittest.TestCase):
         self.assertEqual(seen["uploaded"], seen["hashes"])
         self.assertIn("multipart/form-data", seen["ctype"])
 
+    def test_list_deployments(self):
+        def fake_urlopen(req, timeout=30, context=None):
+            return _FakeResp({
+                "success": True,
+                "result": [
+                    {"id": "d1", "url": "x.p.pages.dev",
+                     "environment": "production",
+                     "created_on": "2026-10-02T00:00:00Z",
+                     "latest_stage": {"name": "deploy", "status": "success"}},
+                    {"id": "d2", "url": "y.p.pages.dev",
+                     "created_on": "2026-10-01T00:00:00Z",
+                     "latest_stage": {"name": "build", "status": "active"}},
+                ],
+            })
+
+        with mock.patch.object(
+            cf.urllib.request, "urlopen", side_effect=fake_urlopen
+        ):
+            deps = cf.list_deployments("t", "acc", "p", per_page=2)
+        self.assertEqual(len(deps), 2)
+        self.assertEqual(deps[0]["status"], "success")
+        self.assertEqual(deps[1]["stage"], "build")
+        self.assertEqual(deps[0]["created_on"], "2026-10-02T00:00:00Z")
+
     def test_file_hash_stable(self):
         h1 = cf._file_hash(b"hello", "index.html")
         h2 = cf._file_hash(b"hello", "index.html")

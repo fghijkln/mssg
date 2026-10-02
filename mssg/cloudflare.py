@@ -450,6 +450,29 @@ def deploy_directory(token, account_id, project, public_dir,
     return {"url": url, "project_url": project_url, "deployment_id": dep_id}
 
 
+def list_deployments(token, account_id, project, per_page=5):
+    """列出项目的最近部署（用于展示部署状态）。"""
+    payload = _req(
+        token, "GET",
+        "/accounts/%s/pages/projects/%s/deployments?per_page=%d"
+        % (account_id, project, per_page),
+        action="获取部署记录",
+    )
+    items = _check(payload, "获取部署记录")
+    out = []
+    for d in items if isinstance(items, list) else []:
+        stage = d.get("latest_stage") or {}
+        out.append({
+            "id": d.get("id") or d.get("uid"),
+            "url": d.get("url", ""),
+            "status": stage.get("status", ""),
+            "stage": stage.get("name", ""),
+            "created_on": d.get("created_on", ""),
+            "environment": d.get("environment", ""),
+        })
+    return out
+
+
 def get_deployment(token, account_id, project, deployment_id):
     payload = _req(
         token, "GET",
