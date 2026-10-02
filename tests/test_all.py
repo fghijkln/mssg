@@ -577,7 +577,8 @@ class TestBuild(unittest.TestCase):
             self.assertNotIn("/page/2.html", sm)
             self.assertEqual(sm.count("<loc>/index.html</loc>"), 1)
 
-    def test_pagination_per_page_change_cleans(self):        with tempfile.TemporaryDirectory() as tmp:
+    def test_pagination_per_page_change_cleans(self):
+        with tempfile.TemporaryDirectory() as tmp:
             root = self._make_paged_site(tmp, n=5, per_page=2)
             Site(root).build()
             self.assertTrue((root / "public" / "page" / "3.html").exists())

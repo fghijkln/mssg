@@ -496,3 +496,13 @@
   `--port` 补"监听端口（默认 8000）"。
 - 测试 87/87 全绿。提交并推送。
 
+## 迭代 52 — 分页 × 自定义首页交互 bug（约 15:20）
+
+- 交互测试发现**真 bug**：先分页、后加 `content/index.md` 时，
+  旧 `index_files` 的残留清理把内容页刚生成的 `index.html` 一并删除 ——
+  首页 404。
+- 修：该分支清理时排除 `index.html`（它已归内容页所有）。
+- 新增测试 test_content_index_added_later_cleans_pagination。
+  测试 88/88 全绿；fuzz 种子 456456，1500 用例 0 问题。
+- 提交并推送，push 前测试全绿。
+
