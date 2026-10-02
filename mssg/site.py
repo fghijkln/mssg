@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import os
@@ -214,9 +215,17 @@ class Site:
         self.cfg = self._load_config(config)
         self._data: dict = {}
 
-    def _ctx(self, **kw) -> dict:
-        """模板公共上下文：site + data + 调用方变量。"""
-        ctx = {"site": self.cfg["site"], "data": self._data}
+    def _ctx(self, site=None, lang=None, **kw) -> dict:
+        """模板公共上下文：site + data + 语言变量 + 调用方变量。"""
+        default = self._default_lang()
+        langs = self._langs()
+        ctx = {
+            "site": site if site is not None else self._site_for_lang(default),
+            "data": self._data,
+            "lang": lang or default,
+            "langs": langs,
+            "default_lang": default,
+        }
         ctx.update(kw)
         return ctx
 
@@ -253,6 +262,7 @@ class Site:
                 "features": [],
                 "contact": {},
                 "footer": {},
+                "form": {},
             },
             "build": {
                 "content_dir": "content",
@@ -261,14 +271,65 @@ class Site:
                 "output_dir": "public",
                 "drafts": False,
             },
+            "i18n": {"default": "zh", "langs": []},
         }
         path = self.root / config
         if path.exists():
             with open(path, "rb") as f:
                 user = tomllib.load(f)
-            for section in ("site", "build"):
+            for section in ("site", "build", "i18n"):
                 cfg[section].update(user.get(section, {}))
         return cfg
+
+    # -- i18n ----------------------------------------------------------
+
+    def _langs(self) -> list:
+        """语言列表；未配置时为单语言（默认语言），行为与旧版一致。"""
+        i18n = self.cfg.get("i18n", {})
+        default = i18n.get("default", "zh") or "zh"
+        langs = [l for l in (i18n.get("langs") or []) if l]
+        if default not in langs:
+            langs = [default] + langs
+        return langs
+
+    def _default_lang(self) -> str:
+        return self._langs()[0]
+
+    def _split_lang(self, rel: str) -> tuple:
+        """content 相对路径 → (lang, 去掉语言后缀的相对路径)。
+
+        约定：about.en.md → ("en", "about.md")；about.md → (默认语言, "about.md")。
+        """
+        langs = self._langs()
+        default = self._default_lang()
+        if rel.endswith(".md"):
+            stem = rel[:-3]
+            for lang in langs:
+                if lang != default and stem.endswith("." + lang):
+                    return lang, stem[: -(len(lang) + 1)] + ".md"
+        return default, rel
+
+    @staticmethod
+    def _deep_merge(base: dict, over: dict) -> dict:
+        for k, v in over.items():
+            if isinstance(v, dict) and isinstance(base.get(k), dict):
+                Site._deep_merge(base[k], v)
+            else:
+                base[k] = copy.deepcopy(v)
+        return base
+
+    def _site_for_lang(self, lang: str) -> dict:
+        """当前语言的 site 配置：基础配置 + [site.<lang>] 覆盖。
+
+        语言子表（如 site.en）从结果中剔除，不污染模板变量。
+        """
+        langs = set(self._langs())
+        base = {
+            k: copy.deepcopy(v)
+            for k, v in self.cfg["site"].items()
+            if k not in langs
+        }
+        return self._deep_merge(base, copy.deepcopy(self.cfg["site"].get(lang, {})))
 
     # -- 对外接口 ------------------------------------------------------
 
@@ -320,16 +381,39 @@ class Site:
         rels = set()
         rebuilt_any = force or global_changed
         render_jobs = []  # (page, out_path, key, digest)
+        default_lang = self._default_lang()
+
+        # 预扫描翻译映射（文件名 → 各语言 URL）：新增/删除翻译文件时，
+        # 兄弟语言页面的 hreflang 也要更新，因此触发全量页面重建。
+        tmap: dict[str, dict] = {}
+        if content_dir.is_dir():
+            for md_path in sorted(content_dir.rglob("*.md")):
+                rel = md_path.relative_to(content_dir).as_posix()
+                lang, base_rel = self._split_lang(rel)
+                pre = "" if lang == default_lang else lang + "/"
+                tmap.setdefault(base_rel, {})[lang] = pre + base_rel[:-3] + ".html"
+        tmap_digest = hashlib.sha1(
+            json.dumps(tmap, ensure_ascii=False, sort_keys=True).encode("utf-8")
+        ).hexdigest()
+        translations_changed = cache.get("tmap") != tmap_digest
+        cache["tmap"] = tmap_digest
+        if translations_changed:
+            rebuilt_any = True
+
         if content_dir.is_dir():
             for md_path in sorted(content_dir.rglob("*.md")):
                 rel = md_path.relative_to(content_dir).as_posix()
                 rels.add(rel)
-                url = rel[:-3] + ".html"
+                lang, base_rel = self._split_lang(rel)
+                prefix = "" if lang == default_lang else lang + "/"
+                url = prefix + base_rel[:-3] + ".html"
                 digest = _sha1_file(md_path)
                 try:
                     page = self._read_page(md_path, rel, url)
                 except Exception as e:
                     raise ValueError("解析页面失败 %s：%s" % (rel, e))
+                page["lang"] = lang
+                page["key"] = base_rel  # 翻译映射用：去掉语言后缀的相对路径
                 out_path = output_dir / url
                 key = "page:" + rel
                 if _is_draft(page.get("draft")) and not include_drafts:
@@ -344,11 +428,16 @@ class Site:
                 if (
                     not force
                     and not global_changed
+                    and not translations_changed
                     and cache.get(key) == digest
                     and out_path.exists()
                 ):
                     continue
                 render_jobs.append((page, out_path, key, digest, rel))
+
+        # 把翻译映射挂到页面上（_render_page 需要 page["translations"]）
+        for p in pages:
+            p["translations"] = tmap.get(p["key"], {})
 
         # 页面渲染并行化（IO 密集，线程池足够；写缓存串行）
         if render_jobs:
@@ -382,65 +471,146 @@ class Site:
             rebuilt_any = True
 
         pages.sort(key=lambda p: p["date"], reverse=True)
-        # content/index.md 存在时，它就是首页，不再用自动索引覆盖
-        has_home = any(p["url"] == "index.html" for p in pages)
+
+        # 各语言独立渲染列表页（首页/标签/分类/归档/订阅）
         index_made: set = set()
-        if not has_home:
-            index_made = self._render_index(
-                pages, templates, output_dir, rebuilt_any
+        tag_made: set = set()
+        cat_made: set = set()
+        archive_rels: list = []
+        feed_rels: list = []
+        rss_rels: list = []
+        home_trans = {
+            l: ("" if l == default_lang else l + "/") + "index.html"
+            for l in self._langs()
+        }
+        for lang in self._langs():
+            lpages = [p for p in pages if p["lang"] == lang]
+            lpages.sort(key=lambda p: p["date"], reverse=True)
+            prefix = "" if lang == default_lang else lang + "/"
+            lsite = self._site_for_lang(lang)
+
+            def _ck(name: str, _lang: str = lang) -> str:
+                return "%s:%s" % (name, _lang)
+
+            # content/index[.lang].md 存在时，它就是该语言的首页
+            has_home = any(p["url"] == prefix + "index.html" for p in lpages)
+            if not has_home:
+                made = self._render_index(
+                    lpages, templates, output_dir, rebuilt_any,
+                    prefix=prefix, site=lsite, lang=lang,
+                    translations=home_trans,
+                )
+                index_made |= made
+                self._clean_stale(output_dir, cache.get(_ck("index_files"), []), made)
+                cache[_ck("index_files")] = sorted(made)
+            elif cache.get(_ck("index_files")):
+                # 之前生成的分页文件现在不需要了（有了 content/index.md）；
+                # index.html 现在由 content/index.md 生成，不在此删除
+                self._clean_stale(
+                    output_dir,
+                    [
+                        f
+                        for f in cache.pop(_ck("index_files"))
+                        if f != prefix + "index.html"
+                    ],
+                    set(),
+                )
+
+            if b.get("tag_pages", True):
+                made = self._render_tag_pages(
+                    lpages, templates, output_dir, rebuilt_any,
+                    prefix=prefix, site=lsite, lang=lang,
+                    translations=home_trans,
+                )
+                tag_made |= made
+                self._clean_stale(output_dir, cache.get(_ck("tag_files"), []), made)
+                cache[_ck("tag_files")] = sorted(made)
+            elif cache.get(_ck("tag_files")):
+                self._clean_stale(output_dir, cache.pop(_ck("tag_files")), set())
+
+            if b.get("archive_page", True):
+                arel = self._render_archive(
+                    lpages, templates, output_dir, rebuilt_any,
+                    prefix=prefix, site=lsite, lang=lang,
+                    translations=home_trans,
+                )
+                archive_rels.append(arel)
+                self._clean_stale(
+                    output_dir, cache.get(_ck("archive_files"), []), {arel}
+                )
+                cache[_ck("archive_files")] = [arel]
+            elif cache.get(_ck("archive_files")):
+                self._clean_stale(output_dir, cache.pop(_ck("archive_files")), set())
+
+            if b.get("category_pages", True):
+                made = self._render_category_pages(
+                    lpages, templates, output_dir, rebuilt_any,
+                    prefix=prefix, site=lsite, lang=lang,
+                    translations=home_trans,
+                )
+                cat_made |= made
+                self._clean_stale(
+                    output_dir, cache.get(_ck("category_files"), []), made
+                )
+                cache[_ck("category_files")] = sorted(made)
+            elif cache.get(_ck("category_files")):
+                self._clean_stale(
+                    output_dir, cache.pop(_ck("category_files")), set()
+                )
+
+            if b.get("feed", True):
+                frel = self._render_feed(
+                    lpages, output_dir, rebuilt_any, prefix=prefix, site=lsite
+                )
+                feed_rels.append(frel)
+                self._clean_stale(
+                    output_dir, cache.get(_ck("feed_files"), []), {frel}
+                )
+                cache[_ck("feed_files")] = [frel]
+            elif cache.get(_ck("feed_files")):
+                self._clean_stale(output_dir, cache.pop(_ck("feed_files")), set())
+
+            if b.get("rss", True):
+                rrel = self._render_rss(
+                    lpages, output_dir, rebuilt_any, prefix=prefix, site=lsite
+                )
+                rss_rels.append(rrel)
+                self._clean_stale(
+                    output_dir, cache.get(_ck("rss_files"), []), {rrel}
+                )
+                cache[_ck("rss_files")] = [rrel]
+            elif cache.get(_ck("rss_files")):
+                self._clean_stale(output_dir, cache.pop(_ck("rss_files")), set())
+
+        # 站内搜索：search.json 索引 + 各语言一份 search.html
+        if b.get("search", True):
+            search_rel = self._render_search_index(pages, output_dir, rebuilt_any)
+            self._clean_stale(
+                output_dir, cache.get("search_files", []), {search_rel}
             )
-            self._clean_stale(output_dir, cache.get("index_files", []), index_made)
-            cache["index_files"] = sorted(index_made)
-        elif cache.get("index_files"):
-            # 之前生成的分页文件现在不需要了（有了 content/index.md）；
-            # index.html 现在由 content/index.md 生成，不在此删除
+            cache["search_files"] = [search_rel]
+            search_page_rels: list = []
+            for lang in self._langs():
+                prefix = "" if lang == default_lang else lang + "/"
+                srel = self._render_search_page(
+                    templates, output_dir, rebuilt_any,
+                    prefix=prefix, site=self._site_for_lang(lang),
+                    lang=lang, translations=home_trans,
+                )
+                search_page_rels.append(srel)
             self._clean_stale(
                 output_dir,
-                [f for f in cache.pop("index_files") if f != "index.html"],
-                set(),
+                cache.get("search_page_files", []),
+                set(search_page_rels),
             )
-
-        tag_made: set = set()
-        if b.get("tag_pages", True):
-            tag_made = self._render_tag_pages(
-                pages, templates, output_dir, rebuilt_any
-            )
-            self._clean_stale(output_dir, cache.get("tag_files", []), tag_made)
-            cache["tag_files"] = sorted(tag_made)
-        elif cache.get("tag_files"):
-            self._clean_stale(output_dir, cache.pop("tag_files"), set())
-
-        archive_rel = None
-        if b.get("archive_page", True):
-            archive_rel = self._render_archive(pages, templates, output_dir, rebuilt_any)
-            self._clean_stale(output_dir, cache.get("archive_files", []), {archive_rel})
-            cache["archive_files"] = [archive_rel]
-        elif cache.get("archive_files"):
-            self._clean_stale(output_dir, cache.pop("archive_files"), set())
-
-        cat_made: set = set()
-        if b.get("category_pages", True):
-            cat_made = self._render_category_pages(
-                pages, templates, output_dir, rebuilt_any
-            )
-            self._clean_stale(output_dir, cache.get("category_files", []), cat_made)
-            cache["category_files"] = sorted(cat_made)
-        elif cache.get("category_files"):
-            self._clean_stale(output_dir, cache.pop("category_files"), set())
-
-        if b.get("feed", True):
-            feed_rel = self._render_feed(pages, output_dir, rebuilt_any)
-            self._clean_stale(output_dir, cache.get("feed_files", []), {feed_rel})
-            cache["feed_files"] = [feed_rel]
-        elif cache.get("feed_files"):
-            self._clean_stale(output_dir, cache.pop("feed_files"), set())
-
-        if b.get("rss", True):
-            rss_rel = self._render_rss(pages, output_dir, rebuilt_any)
-            self._clean_stale(output_dir, cache.get("rss_files", []), {rss_rel})
-            cache["rss_files"] = [rss_rel]
-        elif cache.get("rss_files"):
-            self._clean_stale(output_dir, cache.pop("rss_files"), set())
+            cache["search_page_files"] = sorted(search_page_rels)
+        else:
+            if cache.get("search_files"):
+                self._clean_stale(output_dir, cache.pop("search_files"), set())
+            if cache.get("search_page_files"):
+                self._clean_stale(
+                    output_dir, cache.pop("search_page_files"), set()
+                )
 
         if b.get("robots", True):
             robots_rel = self._render_robots(output_dir, rebuilt_any)
@@ -450,10 +620,10 @@ class Site:
             self._clean_stale(output_dir, cache.pop("robots_files"), set())
 
         if b.get("sitemap", True):
-            extra_paths = set(index_made) | set(tag_made) | set(cat_made)
-            if archive_rel:
-                extra_paths.add(archive_rel)
-            extra = sorted(extra_paths - {"index.html"})
+            extra_paths = (
+                set(index_made) | set(tag_made) | set(cat_made) | set(archive_rels)
+            )
+            extra = sorted(extra_paths - set(home_trans.values()))
             sm_rel = self._render_sitemap(pages, output_dir, rebuilt_any, extra)
             self._clean_stale(output_dir, cache.get("sitemap_files", []), {sm_rel})
             cache["sitemap_files"] = [sm_rel]
@@ -474,7 +644,14 @@ class Site:
                     except ValueError:
                         continue  # 路径穿越保护
                     stale_path.unlink()
-            shutil.copytree(static_dir, output_dir, dirs_exist_ok=True)
+            max_w = b.get("image_max_width", 1600)
+            quality = b.get("image_quality", 82)
+            for sp in sorted(static_dir.rglob("*")):
+                if sp.is_file():
+                    self._copy_static_file(
+                        sp, output_dir / sp.relative_to(static_dir),
+                        max_w, quality,
+                    )
             cache["static_files"] = sorted(new_static)
 
         cache["templates"] = tpl_digest
@@ -523,8 +700,14 @@ class Site:
         return _clean_title(m.group(1)) if m else ""
 
     def _render_page(self, page: dict, templates: dict, out_path: Path) -> None:
+        lang = page.get("lang", self._default_lang())
         tpl_name = str(page.get("template", "page.html"))
-        ctx = self._ctx(page=page)
+        ctx = self._ctx(
+            site=self._site_for_lang(lang),
+            lang=lang,
+            page=page,
+            translations=page.get("translations", {}),
+        )
         if tpl_name in templates:
             out = _tpl.render_template(tpl_name, ctx, templates)
         else:
@@ -538,24 +721,31 @@ class Site:
         out_path.write_text(out, encoding="utf-8")
 
     def _render_index(
-        self, pages: list, templates: dict, output_dir: Path, rebuilt_any: bool
+        self, pages: list, templates: dict, output_dir: Path, rebuilt_any: bool,
+        *, prefix: str = "", site=None, lang=None, translations=None,
     ) -> set:
-        """渲染首页；per_page > 0 时分页为 page/2.html…，返回相对路径集合。"""
+        """渲染首页；per_page > 0 时分页为 page/2.html…，返回相对路径集合。
+
+        prefix 为语言前缀（如 "en/"），多语言站点各语言独立渲染首页。
+        """
         per_page = self.cfg["build"].get("per_page", 0)
         chunks = _paginate(pages, per_page)
         total = len(chunks)
         made = set()
         for i, chunk in enumerate(chunks, start=1):
-            rel = "index.html" if i == 1 else "page/%d.html" % i
+            rel = prefix + ("index.html" if i == 1 else "page/%d.html" % i)
             prev_rel = (
                 None
                 if i == 1
-                else ("index.html" if i == 2 else "page/%d.html" % (i - 1))
+                else (prefix + ("index.html" if i == 2 else "page/%d.html" % (i - 1)))
             )
-            next_rel = "page/%d.html" % (i + 1) if i < total else None
+            next_rel = prefix + "page/%d.html" % (i + 1) if i < total else None
             ctx = self._ctx(
+                site=site,
+                lang=lang,
                 pages=chunk,
                 pagination=_pagination_ctx(i, total, prev_rel, next_rel),
+                translations=translations or {},
             )
             if "index.html" in templates:
                 out = _tpl.render_template("index.html", ctx, templates)
@@ -572,6 +762,7 @@ class Site:
         self, pages: list, templates: dict, output_dir: Path, rebuilt_any: bool,
         *, get_terms, dirname: str, tpl_name: str, fallback: str,
         var_name: str, label: str,
+        prefix: str = "", site=None, lang=None, translations=None,
     ) -> set:
         """通用分类法页面：terms/<slug>.html（分页时还有 terms/<slug>/N.html）。
 
@@ -603,22 +794,25 @@ class Site:
             tag_q = slugs[term]
             for i, chunk in enumerate(chunks, start=1):
                 if i == 1:
-                    rel = "%s/%s.html" % (dirname, tag_q)
+                    rel = prefix + "%s/%s.html" % (dirname, tag_q)
                     prev_rel = None
                 else:
-                    rel = "%s/%s/%d.html" % (dirname, tag_q, i)
+                    rel = prefix + "%s/%s/%d.html" % (dirname, tag_q, i)
                     prev_rel = (
-                        "%s/%s.html" % (dirname, tag_q)
+                        prefix + "%s/%s.html" % (dirname, tag_q)
                         if i == 2
-                        else "%s/%s/%d.html" % (dirname, tag_q, i - 1)
+                        else prefix + "%s/%s/%d.html" % (dirname, tag_q, i - 1)
                     )
                 next_rel = (
-                    "%s/%s/%d.html" % (dirname, tag_q, i + 1) if i < total else None
+                    prefix + "%s/%s/%d.html" % (dirname, tag_q, i + 1) if i < total else None
                 )
                 ctx = self._ctx(
+                    site=site,
+                    lang=lang,
                     **{var_name: term},
                     pages=chunk,
                     pagination=_pagination_ctx(i, total, prev_rel, next_rel),
+                    translations=translations or {},
                 )
                 if tpl_name in templates:
                     out = _tpl.render_template(tpl_name, ctx, templates)
@@ -632,17 +826,20 @@ class Site:
         return made
 
     def _render_tag_pages(
-        self, pages: list, templates: dict, output_dir: Path, rebuilt_any: bool
+        self, pages: list, templates: dict, output_dir: Path, rebuilt_any: bool,
+        *, prefix: str = "", site=None, lang=None, translations=None,
     ) -> set:
         """为每个标签生成 tags/<tag>.html（分页时还有 tags/<tag>/N.html）。"""
         return self._render_taxonomy(
             pages, templates, output_dir, rebuilt_any,
             get_terms=_page_tags, dirname="tags", tpl_name="tag.html",
             fallback=_TAG_FALLBACK, var_name="tag", label="标签",
+            prefix=prefix, site=site, lang=lang, translations=translations,
         )
 
     def _render_category_pages(
-        self, pages: list, templates: dict, output_dir: Path, rebuilt_any: bool
+        self, pages: list, templates: dict, output_dir: Path, rebuilt_any: bool,
+        *, prefix: str = "", site=None, lang=None, translations=None,
     ) -> set:
         """为每个分类生成 categories/<cat>.html（分页时还有 categories/<cat>/N.html）。"""
         return self._render_taxonomy(
@@ -650,10 +847,12 @@ class Site:
             get_terms=_page_categories, dirname="categories",
             tpl_name="category.html", fallback=_CATEGORY_FALLBACK,
             var_name="category", label="分类",
+            prefix=prefix, site=site, lang=lang, translations=translations,
         )
 
     def _render_archive(
-        self, pages: list, templates: dict, output_dir: Path, rebuilt_any: bool
+        self, pages: list, templates: dict, output_dir: Path, rebuilt_any: bool,
+        *, prefix: str = "", site=None, lang=None, translations=None,
     ) -> str:
         """生成 archive.html（按年月归档），返回相对路径。"""
         groups: dict[str, list] = {}
@@ -663,19 +862,95 @@ class Site:
             {"ym": ym, "pages": sorted(ps, key=lambda p: p["date"], reverse=True)}
             for ym, ps in sorted(groups.items(), reverse=True)
         ]
-        ctx = self._ctx(groups=ordered)
+        ctx = self._ctx(
+            site=site, lang=lang, groups=ordered, translations=translations or {}
+        )
         if "archive.html" in templates:
             out = _tpl.render_template("archive.html", ctx, templates)
         else:
             out = _tpl.render(_ARCHIVE_FALLBACK, ctx)
-        dest = output_dir / "archive.html"
+        rel = prefix + "archive.html"
+        dest = output_dir / rel
         if rebuilt_any or not dest.exists():
             dest.write_text(out, encoding="utf-8")
-        return "archive.html"
+        return rel
 
-    def _render_feed(self, pages: list, output_dir: Path, rebuilt_any: bool) -> str:
+    def _render_search_index(self, pages: list, output_dir: Path, rebuilt_any: bool) -> str:
+        """生成 search.json（站内搜索索引：标题/URL/日期/语言/正文），返回相对路径。"""
+        items = []
+        for p in pages:
+            text = re.sub(r"<[^>]+>", " ", str(p.get("content", "")))
+            text = re.sub(r"\s+", " ", text).strip()[:2000]
+            items.append(
+                {
+                    "title": p.get("title", ""),
+                    "url": p.get("url", ""),
+                    "date": str(p.get("date", ""))[:10],
+                    "lang": p.get("lang", self._default_lang()),
+                    "text": text,
+                }
+            )
+        rel = "search.json"
+        dest = output_dir / rel
+        if rebuilt_any or not dest.exists():
+            dest.write_text(
+                json.dumps(items, ensure_ascii=False), encoding="utf-8"
+            )
+        return rel
+
+    _SEARCH_FALLBACK = """<!doctype html><html lang="{{ lang }}"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>搜索 - {{ site.title }}</title></head><body>
+<h1>搜索</h1>
+<input id="q" placeholder="输入关键词…" style="width:100%;padding:.6em">
+<div id="results"></div>
+<script>
+const LANG = document.documentElement.lang;
+let idx = [];
+fetch("/search.json").then(r => r.json()).then(d => {
+  idx = d.filter(e => !e.lang || e.lang === LANG);
+});
+document.getElementById("q").addEventListener("input", e => {
+  const q = e.target.value.trim().toLowerCase();
+  const box = document.getElementById("results");
+  if (!q) { box.innerHTML = ""; return; }
+  const hits = idx.filter(
+    h => ((h.title || "") + " " + (h.text || "")).toLowerCase().includes(q)
+  ).slice(0, 20);
+  box.innerHTML = hits.length
+    ? hits.map(h => '<p><a href="/' + h.url + '">' +
+        h.title.replace(/</g, "&lt;") + "</a><br><small>" + h.date + "</small></p>").join("")
+    : "<p>没有找到。</p>";
+});
+</script>
+</body></html>"""
+
+    def _render_search_page(
+        self, templates: dict, output_dir: Path, rebuilt_any: bool,
+        *, prefix: str = "", site=None, lang=None, translations=None,
+    ) -> str:
+        """生成 search.html（站内搜索页，前端 JS 读取 search.json），返回相对路径。"""
+        ctx = self._ctx(
+            site=site, lang=lang, translations=translations or {}
+        )
+        if "search.html" in templates:
+            out = _tpl.render_template("search.html", ctx, templates)
+        else:
+            out = _tpl.render(self._SEARCH_FALLBACK, ctx)
+        rel = prefix + "search.html"
+        dest = output_dir / rel
+        if rebuilt_any or not dest.exists():
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_text(out, encoding="utf-8")
+        return rel
+
+    def _render_feed(
+        self, pages: list, output_dir: Path, rebuilt_any: bool,
+        *, prefix: str = "", site=None,
+    ) -> str:
         """生成 Atom 1.0 订阅 feed.xml（最近 20 篇），返回相对路径。"""
-        base = self.cfg["site"].get("base_url", "").rstrip("/")
+        site = site if site is not None else self.cfg["site"]
+        base = site.get("base_url", "").rstrip("/")
         entries = []
         for p in pages[:20]:
             url = (base + "/" + p["url"]) if base else "/" + p["url"]
@@ -699,7 +974,7 @@ class Site:
             updated = _atom_date(pages[0]["date"])
         else:
             updated = _atom_date(datetime.now(timezone.utc).strftime("%Y-%m-%d"))
-        feed_url = (base + "/feed.xml") if base else "/feed.xml"
+        feed_url = (base + "/" + prefix + "feed.xml") if base else "/" + prefix + "feed.xml"
         site_id = base if base else "/"
         out = (
             '<?xml version="1.0" encoding="utf-8"?>\n'
@@ -712,7 +987,7 @@ class Site:
             "%s\n"
             "</feed>\n"
             % (
-                _xml_escape(str(self.cfg["site"].get("title", ""))),
+                _xml_escape(str(site.get("title", ""))),
                 _xml_escape(feed_url, {'"': "&quot;"}),
                 _xml_escape(feed_url, {'"': "&quot;"}),
                 updated,
@@ -720,14 +995,18 @@ class Site:
                 "\n".join(entries),
             )
         )
-        dest = output_dir / "feed.xml"
+        dest = output_dir / (prefix + "feed.xml")
         if rebuilt_any or not dest.exists():
             dest.write_text(out, encoding="utf-8")
-        return "feed.xml"
+        return prefix + "feed.xml"
 
-    def _render_rss(self, pages: list, output_dir: Path, rebuilt_any: bool) -> str:
+    def _render_rss(
+        self, pages: list, output_dir: Path, rebuilt_any: bool,
+        *, prefix: str = "", site=None,
+    ) -> str:
         """生成 RSS 2.0 订阅 feed_rss.xml（最近 20 篇），返回相对路径。"""
-        base = self.cfg["site"].get("base_url", "").rstrip("/")
+        site = site if site is not None else self.cfg["site"]
+        base = site.get("base_url", "").rstrip("/")
         items = []
         for p in pages[:20]:
             url = (base + "/" + p["url"]) if base else "/" + p["url"]
@@ -751,7 +1030,7 @@ class Site:
             pub = _rss_date(pages[0]["date"])
         else:
             pub = _rss_date(datetime.now(timezone.utc).strftime("%Y-%m-%d"))
-        feed_url = (base + "/feed_rss.xml") if base else "/feed_rss.xml"
+        feed_url = (base + "/" + prefix + "feed_rss.xml") if base else "/" + prefix + "feed_rss.xml"
         out = (
             '<?xml version="1.0" encoding="utf-8"?>\n'
             '<rss version="2.0">\n'
@@ -764,17 +1043,17 @@ class Site:
             " </channel>\n"
             "</rss>\n"
             % (
-                _xml_escape(str(self.cfg["site"].get("title", ""))),
+                _xml_escape(str(site.get("title", ""))),
                 _xml_escape(feed_url),
-                _xml_escape(str(self.cfg["site"].get("title", ""))),
+                _xml_escape(str(site.get("title", ""))),
                 pub,
                 "\n".join(items),
             )
         )
-        dest = output_dir / "feed_rss.xml"
+        dest = output_dir / (prefix + "feed_rss.xml")
         if rebuilt_any or not dest.exists():
             dest.write_text(out, encoding="utf-8")
-        return "feed_rss.xml"
+        return prefix + "feed_rss.xml"
 
     def _render_robots(self, output_dir: Path, rebuilt_any: bool) -> str:
         """生成 robots.txt，返回相对路径。"""
@@ -798,9 +1077,13 @@ class Site:
 
         entries = []
         seen = set()
-        if pages:
-            entries.append(("index.html", pages[0]["date"]))
-            seen.add("index.html")
+        # 各语言首页优先（单语言时行为与旧版一致）
+        for lang in self._langs():
+            lpages = [p for p in pages if p["lang"] == lang]
+            home = ("" if lang == self._default_lang() else lang + "/") + "index.html"
+            date = lpages[0]["date"] if lpages else time.strftime("%Y-%m-%d")
+            entries.append((home, date))
+            seen.add(home)
         for p in pages:
             # content/index.md 本身就是首页，去重避免 index.html 出现两次
             if p["url"] not in seen:
@@ -829,6 +1112,39 @@ class Site:
         if rebuilt_any or not dest.exists():
             dest.write_text("\n".join(lines) + "\n", encoding="utf-8")
         return "sitemap.xml"
+
+    @staticmethod
+    @staticmethod
+    def _copy_static_file(src: Path, dst: Path, max_w: int, quality: int) -> None:
+        """拷贝静态文件；图片按配置压缩/缩放（Pillow），失败时回退普通拷贝。
+
+        max_w <= 0 表示不缩放只压缩。
+        """
+        if src.suffix.lower() in (".jpg", ".jpeg", ".png", ".webp"):
+            try:
+                from PIL import Image
+
+                im = Image.open(src)
+                if max_w and im.width > max_w:
+                    im = im.resize(
+                        (max_w, max(1, round(im.height * max_w / im.width))),
+                        Image.LANCZOS,
+                    )
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                suf = src.suffix.lower()
+                if suf in (".jpg", ".jpeg"):
+                    if im.mode in ("RGBA", "LA", "P"):
+                        im = im.convert("RGB")
+                    im.save(dst, quality=int(quality or 82), optimize=True)
+                elif suf == ".png":
+                    im.save(dst, optimize=True)
+                else:
+                    im.save(dst)
+                return
+            except Exception:
+                pass
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, dst)
 
     @staticmethod
     def _clean_stale(output_dir: Path, old_files: list, made: set) -> None:
@@ -900,6 +1216,14 @@ weight = 3
 name = "关于"
 url = "/about.html"
 weight = 4
+[[site.menu]]
+name = "联系"
+url = "/contact.html"
+weight = 5
+[[site.menu]]
+name = "搜索"
+url = "/search.html"
+weight = 6
 
 # 首页 hero 区
 [site.hero]
@@ -926,12 +1250,31 @@ text = "语义化 HTML、sitemap、RSS、Open Graph 标签开箱即备。"
 email = "hi@example.com"
 phone = "400-000-0000"
 
+# 联系表单：填入 Formspree / Getform 等第三方服务的 endpoint，
+# 联系页（/contact.html）的表单即可用；留空则显示配置提示。
+[site.form]
+endpoint = ""
+# endpoint = "https://formspree.io/f/xxxxxx"
+
 [site.footer]
 text = "© 2026 星尘科技"
+
+# 多语言：取消注释启用英文版。about.en.md 这类文件会输出到 en/ 目录，
+# [site.en] 覆盖英文版的站点文案（标题/菜单/hero 等）。
+# [i18n]
+# default = "zh"
+# langs = ["zh", "en"]
+#
+# [site.en]
+# title = "Stardust"
+# description = "Stardust builds collaboration tools for small teams."
 
 [build]
 # per_page = 5  # 首页/标签页每页篇数；0 或不填则不分页
 # 分页文件：首页 page/2.html…，标签页 tags/<tag>/2.html…
+# image_max_width = 1600  # static/ 里的图片超过此宽度则缩放；0 表示不缩放
+# image_quality = 82      # JPEG 压缩质量（1-95）
+# search = false          # 设为 false 关闭站内搜索（search.json + /search.html）
 """,
         encoding="utf-8",
     )
@@ -939,7 +1282,7 @@ text = "© 2026 星尘科技"
     (root / "templates" / "base.html").write_text(
         """\
 <!doctype html>
-<html lang="zh-CN">
+<html lang="{{ lang }}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -952,6 +1295,8 @@ text = "© 2026 星尘科技"
 {% if site.base_url %}<meta property="og:url" content="{{ site.base_url }}/{{ page.url if page else '' }}">{% endif %}
 <meta name="twitter:card" content="summary">
 {% endblock %}
+{% for l, u in translations.items() %}<link rel="alternate" hreflang="{{ l }}" href="/{{ u }}">
+{% endfor %}
 <link rel="stylesheet" href="/style.css">
 <link rel="alternate" type="application/atom+xml" title="{{ site.title }}" href="/feed.xml">
 </head>
@@ -961,6 +1306,11 @@ text = "© 2026 星尘科技"
 <a class="brand" href="/">{{ site.title }}</a>
 <nav>
 {% for m in site.menu|sort(attribute="weight") %}<a href="{{ m.url }}">{{ m.name }}</a>{% endfor %}
+{% if langs|length > 1 %}
+<span class="lang-switch">
+{% for l in langs %}{% if l == lang %}<strong>{{ l }}</strong>{% elif l in translations %}<a href="/{{ translations[l] }}">{{ l }}</a>{% elif l == default_lang %}<a href="/">{{ l }}</a>{% else %}<a href="/{{ l }}/">{{ l }}</a>{% endif %}{% endfor %}
+</span>
+{% endif %}
 </nav>
 </div>
 </header>
@@ -1104,6 +1454,75 @@ text = "© 2026 星尘科技"
 {% endfor %}
 </div>
 {% endblock %}
+""",
+        encoding="utf-8",
+    )
+    (root / "templates" / "search.html").write_text(
+        """\
+{% extends "base.html" %}
+{% block title %}搜索 - {{ site.title }}{% endblock %}
+{% block content %}
+<div class="wrap article">
+<h1>搜索</h1>
+<input id="q" class="search-box" placeholder="输入关键词…" autocomplete="off">
+<div id="results" class="search-results"></div>
+</div>
+<script>
+const LANG = document.documentElement.lang;
+let idx = [];
+fetch("/search.json").then(r => r.json()).then(d => {
+  idx = d.filter(e => !e.lang || e.lang === LANG);
+});
+document.getElementById("q").addEventListener("input", e => {
+  const q = e.target.value.trim().toLowerCase();
+  const box = document.getElementById("results");
+  if (!q) { box.innerHTML = ""; return; }
+  const hits = idx.filter(h =>
+    ((h.title || "") + " " + (h.text || "")).toLowerCase().includes(q)
+  ).slice(0, 20);
+  box.innerHTML = hits.length ? hits.map(h =>
+    '<p><a href="/' + h.url + '">' + h.title.replace(/</g, "&lt;") +
+    "</a><br><small>" + h.date + "</small></p>"
+  ).join("") : "<p>没有找到。</p>";
+});
+</script>
+{% endblock %}
+""",
+        encoding="utf-8",
+    )
+    (root / "templates" / "contact.html").write_text(
+        """\
+{% extends "base.html" %}
+{% block title %}{{ page.title }} - {{ site.title }}{% endblock %}
+{% block content %}
+<div class="wrap article">
+<h1>{{ page.title }}</h1>
+{{ page.content }}
+{% if site.form.endpoint %}
+<form class="contact-form" action="{{ site.form.endpoint }}" method="POST">
+<label>姓名<input type="text" name="name" required></label>
+<label>邮箱<input type="email" name="email" required></label>
+<label>留言<textarea name="message" rows="6" required></textarea></label>
+<button class="btn" type="submit">发送</button>
+</form>
+{% else %}
+<p class="hint">联系表单尚未配置：在 <code>mssg.toml</code> 的 <code>[site.form]</code>
+中填入 endpoint（如 Formspree）后重新构建即可启用。</p>
+{% endif %}
+</div>
+{% endblock %}
+""",
+        encoding="utf-8",
+    )
+    (root / "content" / "contact.md").write_text(
+        """\
+---
+title: 联系我们
+date: 2026-10-02
+template: contact.html
+---
+
+欢迎通过下表给我们留言，我们会尽快回复。
 """,
         encoding="utf-8",
     )
@@ -1254,6 +1673,22 @@ th,td{border:1px solid #ccc;padding:.3em .8em}
 blockquote{border-left:3px solid var(--primary);margin:1.5em 0;padding:.2em 0 .2em 1em;
   color:var(--muted);background:var(--soft);border-radius:0 .5rem .5rem 0}
 .pager{display:flex;gap:1rem;align-items:center;margin:2rem 0}
+/* 语言切换 */
+.lang-switch{margin-left:1.25rem;font-size:.85rem;white-space:nowrap}
+.lang-switch a{margin-left:.5rem}
+.lang-switch strong{margin-left:.5rem;color:var(--primary)}
+/* 搜索 */
+.search-box{width:100%;padding:.7em 1em;font-size:1rem;border:1px solid var(--line);border-radius:.5rem}
+.search-results p{padding:.6rem 0;border-bottom:1px solid var(--line)}
+.search-results small{color:var(--muted)}
+/* 联系表单 */
+.contact-form label{display:block;margin:1rem 0;font-weight:600}
+.contact-form input,.contact-form textarea{width:100%;padding:.6em;margin-top:.4rem;
+  border:1px solid var(--line);border-radius:.5rem;font-size:1rem;font-family:inherit}
+.contact-form .btn{border:0;cursor:pointer;background:var(--primary);color:#fff;
+  padding:.7rem 2rem;border-radius:.5rem;font-size:1rem;margin-top:.5rem}
+.contact-form .btn:hover{background:var(--primary-dark)}
+.hint{background:var(--soft);border-radius:.5rem;padding:1rem 1.25rem}
 /* 移动端 */
 @media (max-width:640px){
   .hero{padding:3rem 0}

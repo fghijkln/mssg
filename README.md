@@ -108,6 +108,24 @@ robots = true               # 是否生成 robots.txt
 per_page = 0                # 首页/标签页每页篇数；0 为不分页
                             # 分页文件：首页 page/2.html…、标签页 tags/<tag>/2.html…
                             # （content 下不要建 page/、tags/<tag>/ 同名路径，以免冲突）
+search = true               # 站内搜索：生成 search.json 索引 + /search.html（无后端纯前端）
+image_max_width = 1600      # static/ 里的图片超过此宽度则缩放（Pillow）；0 为不缩放
+image_quality = 82          # JPEG 压缩质量（1-95）；PNG 自动 optimize
+
+# 联系表单：填入 Formspree / Getform 等第三方服务的 endpoint，
+# 联系页（/contact.html）的表单即可用；留空则显示配置提示
+[site.form]
+endpoint = ""
+# endpoint = "https://formspree.io/f/xxxxxx"
+
+# 多语言：取消注释启用英文版。about.en.md 这类文件会输出到 en/ 目录，
+# [site.en] 覆盖英文版的站点文案（标题/菜单/hero 等深层合并）
+[i18n]
+# default = "zh"
+# langs = ["zh", "en"]
+# [site.en]
+# title = "Stardust"
+# description = "English description."
 ```
 
 换肤不需要改模板：改 `mssg.toml` 里的标题、菜单、hero、特性卡、
@@ -122,8 +140,13 @@ mssg post <slug> [-t 标题]      # 同上，兼容别名
 mssg build [--force] [--drafts] [-c mssg.toml]
 mssg serve [--port 8000] [--drafts] [--no-watch] [-c mssg.toml]
 mssg clean [-c mssg.toml]       # 清空构建输出目录（指向站点根时拒绝执行）
+mssg admin [--port 8902] [-c mssg.toml]  # 本地内容管理后台（仅 127.0.0.1）
 mssg --version
 ```
+
+`mssg admin` 在本机起一个网页后台：文章列表、新建、编辑
+（标题/日期/标签/分类/草稿/正文）、删除，保存后自动重建。
+只监听回环地址，不对外暴露；不要把它放到公网。
 
 ## Markdown（Python-Markdown）
 
@@ -202,6 +225,17 @@ per_page 改动会触发全量重建并清理多余分页文件。
 - 数据文件：`data/` 下的 `.json`/`.toml` 会在模板里以 `data` 变量可用，
   改动触发重建
 - 并行构建：页面渲染用线程池并行（缓存写回串行）
+- 多语言：`content/about.en.md` → `en/about.html`（文件名后缀约定）；
+  `[i18n] langs = ["zh", "en"]` 开启，`[site.en]` 覆盖该语言的站点文案
+  （标题/菜单/hero 等深层合并）；首页/标签/分类/归档/订阅按语言独立生成；
+  模板变量 `lang` / `langs` / `default_lang` / `translations`；
+  自动输出 `hreflang` 标签与导航语言切换器；增量构建可感知翻译文件增删
+- 站内搜索：构建时生成 `search.json` 全文索引，`/search.html`
+  纯前端 JS 搜索（按当前语言过滤），无后端依赖；`[build] search = false` 可关闭
+- 图片优化：`static/` 里的 JPG/PNG/WebP 构建时自动压缩，
+  超过 `image_max_width` 则等比缩放（Pillow LANCZOS）；损坏图片回退普通拷贝
+- 联系表单：`[site.form] endpoint` 填入 Formspree / Getform 等第三方服务地址，
+  `/contact.html` 的表单即提交到该地址；留空则显示配置提示
 
 ## 测试
 
@@ -234,4 +268,8 @@ python -m unittest discover -s tests
 
 - [x] `{% include %}` 模板片段引入
 - [x] 分页（首页/标签页按 N 篇分页）
-- 多语言站点支持
+- [x] 多语言站点支持（0.6.0：文件名后缀约定 + 按语言独立生成 + hreflang）
+- [x] 站内搜索（0.6.0：search.json + 纯前端）
+- [x] 本地内容管理后台（0.6.0：`mssg admin`）
+- [x] 图片压缩/缩放（0.6.0：Pillow）
+- [x] 联系表单（0.6.0：第三方 endpoint 配置）

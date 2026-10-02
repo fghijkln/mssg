@@ -160,6 +160,17 @@ def _cmd_clean(args) -> int:
     return 0
 
 
+def _cmd_admin(args) -> int:
+    from .admin import run as admin_run
+
+    try:
+        admin_run(".", port=args.port)
+    except OSError as e:
+        print("错误：无法启动管理后台：%s" % e)
+        return 1
+    return 0
+
+
 def _cmd_serve(args) -> int:
     try:
         site = Site(".", config=args.config)
@@ -244,6 +255,13 @@ def main() -> int:
         "-c", "--config", default="mssg.toml", help="配置文件路径（默认 mssg.toml）"
     )
     p_post.set_defaults(func=_cmd_post)
+
+    p_admin = sub.add_parser("admin", help="本地内容管理后台（仅 127.0.0.1）")
+    p_admin.add_argument(
+        "-c", "--config", default="mssg.toml", help="配置文件路径（默认 mssg.toml）"
+    )
+    p_admin.add_argument("--port", type=int, default=8902, help="监听端口（默认 8902）")
+    p_admin.set_defaults(func=_cmd_admin)
 
     args = parser.parse_args()
     return args.func(args)

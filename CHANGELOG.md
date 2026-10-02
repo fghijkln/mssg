@@ -1,5 +1,36 @@
 # 更新日志
 
+## 0.6.0（2026-10-02）
+
+补齐公司官网级能力的五个短板（157 测试全绿）：
+
+### 新功能
+
+- 多语言（i18n）：`content/about.en.md` → `en/about.html`（文件名后缀约定，
+  默认语言不加前缀）；`[i18n] default/langs` 开启；`[site.en]` 深层覆盖该语言的
+  站点文案（标题/菜单/hero/特性卡等）；首页/标签/分类/归档/订阅按语言独立生成；
+  模板新增 `lang` / `langs` / `default_lang` / `translations` 变量；
+  自动输出 `hreflang` 标签与导航栏语言切换器；翻译文件增删会触发兄弟页面重建
+  （增量构建感知）
+- 站内搜索：构建生成 `search.json`（标题/URL/日期/语言/纯文本正文），
+  `/search.html` 用原生 JS 前端搜索并按当前语言过滤，无后端依赖；
+  `[build] search = false` 可关闭
+- `mssg admin`：本地内容管理后台（纯标准库 `http.server`），文章列表/新建/
+  编辑（标题/日期/标签/分类/草稿/正文）/删除，保存后自动重建；
+  只监听 127.0.0.1，无鉴权——不要暴露到公网
+- 图片优化：`static/` 下的 JPG/PNG/WebP 构建时自动压缩，
+  超过 `image_max_width`（默认 1600）等比缩放（Pillow LANCZOS），
+  `image_quality`（默认 82）控制 JPEG 质量；损坏图片回退普通拷贝
+- 联系表单：`[site.form] endpoint` 填入 Formspree / Getform 等第三方服务地址，
+  `/contact.html`（新模板 + 示例页）表单即提交到该地址；留空显示配置提示
+- 依赖新增 `Pillow>=10.0`
+
+### 脚手架变化
+
+- 新增 `templates/search.html`、`templates/contact.html`、`content/contact.md`
+- 导航菜单新增"联系""搜索"；`base.html` 输出 `<html lang>`、hreflang 与语言切换器
+- `mssg.toml` 新增 `[site.form]`、`[i18n]`、`[site.en]` 注释示例与图片配置项
+
 ## 0.5.0（2026-10-02）
 
 公司官网级脚手架。`mssg new` 现在生成一个可直接上线的公司站：
