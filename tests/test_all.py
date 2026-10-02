@@ -75,6 +75,13 @@ class TestMarkdown(unittest.TestCase):
         self.assertIn("<th><code>a|b</code></th>", html)
         self.assertIn("<th>c</th>", html)
 
+    def test_table_alignment(self):
+        html = markdown.parse("| a | b | c |\n|:---:|---|---:|\n| 1 | 2 | 3 |\n")
+        self.assertIn('<th style="text-align:center">a</th>', html)
+        self.assertIn("<th>b</th>", html)
+        self.assertIn('<th style="text-align:right">c</th>', html)
+        self.assertIn('<td style="text-align:center">1</td>', html)
+
     def test_hr(self):
         self.assertIn("<hr>", markdown.parse("---"))
         # 分隔符之间允许空格（CommonMark 行为）

@@ -218,23 +218,56 @@ def _split_row(line: str) -> list[str]:
     return [c.strip() for c in cells]
 
 
+def _col_alignments(sep_line: str) -> list[str]:
+    """从表格分隔行解析每列对齐方式（:---: 居中、---: 右对齐、:--- 左对齐）。"""
+    aligns = []
+    for cell in _split_row(sep_line):
+        c = cell.strip()
+        left, right = c.startswith(":"), c.endswith(":")
+        if left and right and len(c) > 2:
+            aligns.append("center")
+        elif right:
+            aligns.append("right")
+        elif left:
+            aligns.append("left")
+        else:
+            aligns.append("")
+    return aligns
+
+
+def _align_attr(align: str) -> str:
+    return ' style="text-align:%s"' % align if align else ""
+
+
 def _parse_table(lines: list[str], i: int) -> tuple[str, int]:
     header = _split_row(lines[i])
+    aligns = _col_alignments(lines[i + 1])
     i += 2  # 跳过表头与分隔行
     rows = []
     n = len(lines)
     while i < n and lines[i].strip().startswith("|"):
         rows.append(_split_row(lines[i]))
         i += 1
+
+    def _align(idx: int) -> str:
+        return aligns[idx] if idx < len(aligns) else ""
+
     parts = ["<table>"]
     parts.append(
         "<thead><tr>%s</tr></thead>"
-        % "".join("<th>%s</th>" % _inline(c) for c in header)
+        % "".join(
+            "<th%s>%s</th>" % (_align_attr(_align(k)), _inline(c))
+            for k, c in enumerate(header)
+        )
     )
     parts.append("<tbody>")
     for row in rows:
         parts.append(
-            "<tr>%s</tr>" % "".join("<td>%s</td>" % _inline(c) for c in row)
+            "<tr>%s</tr>"
+            % "".join(
+                "<td%s>%s</td>" % (_align_attr(_align(k)), _inline(c))
+                for k, c in enumerate(row)
+            )
         )
     parts.append("</tbody>")
     parts.append("</table>")
