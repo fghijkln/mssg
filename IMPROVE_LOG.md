@@ -99,3 +99,13 @@
 - 测试 50/50 全绿；fuzz 种子 8888，1500 用例 0 问题；README 补充说明。
 - 提交并推送，push 前测试全绿。
 
+## 迭代 9 — 路线图④ Atom 订阅（约 15:28）
+
+- 自动生成 `feed.xml`（Atom 1.0）：最近 20 篇，含标题/链接/更新时间/HTML 内容（已转义）；
+  日期转 RFC3339；base_url 为空时用站内相对路径。
+- 配置 `[build] feed = false` 可关闭，关闭后旧 feed.xml 自动清理。
+- 脚手架 base.html 增加 `<link rel="alternate" type="application/atom+xml">`。
+- 新增测试 2 个：test_feed（含 XML 合法性校验）、test_feed_disabled。
+- 测试 52/52 全绿；fuzz 种子 6161，1500 用例 0 问题；README 补充说明。
+- 提交并推送，push 前测试全绿。
+

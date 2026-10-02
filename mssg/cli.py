@@ -6,6 +6,8 @@ import argparse
 import functools
 import http.server
 import os
+import threading
+import time
 
 from .site import Site, new_site
 
@@ -37,6 +39,55 @@ def _cmd_build(args) -> int:
     return 0
 
 
+def _snapshot(paths: list) -> dict:
+    """对监听路径做 (mtime, size) 快照。"""
+    snap = {}
+    for base in paths:
+        if os.path.isdir(base):
+            for dp, _, fns in os.walk(base):
+                for fn in fns:
+                    p = os.path.join(dp, fn)
+                    try:
+                        st = os.stat(p)
+                    except OSError:
+                        continue
+                    snap[p] = (st.st_mtime, st.st_size)
+        elif os.path.isfile(base):
+            try:
+                st = os.stat(base)
+            except OSError:
+                continue
+            snap[base] = (st.st_mtime, st.st_size)
+    return snap
+
+
+def _watch_and_rebuild(site: Site, args, stop_event: threading.Event) -> None:
+    """轮询监听内容/模板/静态资源/配置变化，变化时自动重建。"""
+    b = site.cfg["build"]
+    watched = [
+        os.path.join(str(site.root), b["content_dir"]),
+        os.path.join(str(site.root), b["template_dir"]),
+        os.path.join(str(site.root), b["static_dir"]),
+        os.path.join(str(site.root), args.config),
+    ]
+    last = _snapshot(watched)
+    while not stop_event.wait(0.5):
+        cur = _snapshot(watched)
+        if cur == last:
+            continue
+        last = cur
+        now = time.strftime("%H:%M:%S")
+        try:
+            result = site.build(include_drafts=args.drafts)
+            print(
+                "[%s] 检测到变化，重建完成：%d 个页面" % (now, result["pages"]),
+                flush=True,
+            )
+        except Exception as e:  # noqa: BLE001
+            # 构建失败（如模板语法错误）不退出，继续监听等用户修复
+            print("[%s] 构建失败：%s（继续监听）" % (now, e), flush=True)
+
+
 def _cmd_serve(args) -> int:
     site = Site(".", config=args.config)
     site.build(include_drafts=args.drafts)
@@ -50,10 +101,20 @@ def _cmd_serve(args) -> int:
         print("错误：无法监听端口 %d（%s）" % (args.port, e))
         return 1
     print("本地预览：http://127.0.0.1:%d/ （Ctrl-C 退出）" % args.port)
+    stop_event = threading.Event()
+    watcher = None
+    if not args.no_watch:
+        print("正在监听文件变化，自动重建…")
+        watcher = threading.Thread(
+            target=_watch_and_rebuild, args=(site, args, stop_event), daemon=True
+        )
+        watcher.start()
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         pass
+    finally:
+        stop_event.set()
     return 0
 
 
@@ -82,6 +143,7 @@ def main() -> int:
     p_serve.add_argument("-c", "--config", default="mssg.toml")
     p_serve.add_argument("--port", type=int, default=8000)
     p_serve.add_argument("--drafts", action="store_true", help="包含草稿（draft: true）")
+    p_serve.add_argument("--no-watch", action="store_true", help="关闭文件监听自动重建")
     p_serve.set_defaults(func=_cmd_serve)
 
     args = parser.parse_args()

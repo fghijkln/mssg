@@ -19,6 +19,8 @@ mssg new my-site        # 生成站点脚手架
 cd my-site
 mssg build              # 构建，输出到 public/
 mssg serve              # 构建 + 本地预览 http://127.0.0.1:8000/
+                        # serve 默认监听 content/templates/static/mssg.toml 的变化并自动重建
+                        # （--no-watch 可关闭）
 ```
 
 站点结构：
