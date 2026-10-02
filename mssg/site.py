@@ -78,6 +78,7 @@ def _page_tags(page: dict) -> list:
 class Site:
     def __init__(self, root: str | Path, config: str = "mssg.toml"):
         self.root = Path(root)
+        self.config_path = self.root / config
         self.cfg = self._load_config(config)
 
     def _load_config(self, config: str) -> dict:
@@ -112,6 +113,13 @@ class Site:
 
         cache_path = output_dir / ".mssg" / "cache.json"
         cache = self._load_cache(cache_path)
+
+        # 配置文件变化 → 强制全量重建
+        config_digest = (
+            _sha1_file(self.config_path) if self.config_path.exists() else ""
+        )
+        if cache.get("config") != config_digest:
+            force = True
 
         templates = self._load_templates(template_dir)
         tpl_digest = (
@@ -204,6 +212,7 @@ class Site:
             del cache[key]
 
         cache["templates"] = tpl_digest
+        cache["config"] = config_digest
         self._save_cache(cache_path, cache)
         return {"pages": len(pages), "rebuilt": rebuilt_any}
 

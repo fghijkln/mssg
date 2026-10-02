@@ -401,6 +401,22 @@ class TestBuild(unittest.TestCase):
             Site(root).build()
             self.assertFalse((root / "public" / "feed.xml").exists())
 
+    def test_config_change_triggers_rebuild(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = new_site(os.path.join(tmp, "demo"))
+            site = Site(root)
+            site.build()
+            self.assertFalse(site.build()["rebuilt"])
+            toml = root / "mssg.toml"
+            toml.write_text(
+                toml.read_text(encoding="utf-8").replace("我的小站", "新标题"),
+                encoding="utf-8",
+            )
+            result = Site(root).build()
+            self.assertTrue(result["rebuilt"])
+            index = (root / "public" / "index.html").read_text(encoding="utf-8")
+            self.assertIn("新标题", index)
+
 
 if __name__ == "__main__":
     unittest.main()

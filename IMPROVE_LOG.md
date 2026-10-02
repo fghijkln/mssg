@@ -137,3 +137,11 @@
 - 测试 54/54 全绿；fuzz 种子 2718，2000 用例 0 问题。
 - 提交 36f41d5 并推送，push 前测试全绿。
 
+## 迭代 12 — template.py 第二轮：else 后分支检查（约 16:02）
+
+- 审查发现：`{% if a %}A{% else %}B{% elif c %}C{% endif %}` 被静默接受，
+  语义含糊 → 修：else 之后再出现 elif/else 直接抛明确 ValueError。
+- 新增测试 1 个：test_elif_else_after_else_error。
+- 测试 55/55 全绿；fuzz 种子 31415，2000 用例 0 问题。
+- 提交并推送，push 前测试全绿。
+
