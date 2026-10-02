@@ -29,7 +29,7 @@ mssg serve              # 构建 + 本地预览 http://127.0.0.1:8000/
 my-site/
   mssg.toml        # 配置（站点标题、目录等）
   content/         # Markdown 文章（支持 --- front matter ---）
-  templates/       # page.html（文章模板）、index.html（首页模板）
+  templates/       # base.html / page.html / index.html / tag.html / archive.html
   static/          # 原样拷贝到输出目录
   public/          # 构建产物
 ```
@@ -51,7 +51,7 @@ template: page.html
 ```
 
 front matter 支持字符串、整数、浮点数、布尔、`[a, b]` 行内列表与 `- ` 多行列表；
-行尾 ` # 注释` 会被剥离（引号内保留）。
+行尾注释会被剥离（引号内、`a#b` 这种无空白的不算注释）。
 
 ## 配置参考（mssg.toml）
 
@@ -103,18 +103,20 @@ ATX 标题、段落、`**粗体**`、`*斜体*`、`` `行内代码` ``、`[链�
 - `{% include "part.html" %}` —— 引入模板片段（使用当前上下文；被引入的模板不能用 extends）
 
 模板可用变量：`site`（配置）、`page`（当前页面：title/date/content/url + front matter
-全部字段）、`pages`（首页：全部页面，按日期倒序）、`pagination`（分页信息：
-page/total_pages/multiple/has_prev/has_next/prev_url/next_url；
-`pages` 为当前页的文章）。
-- 分页：`[build] per_page = 5` 后，首页第 2 页起为 `page/2.html`…，
-  标签第 2 页起为 `tags/<tag>/2.html`…；分页 URL 自动计入 sitemap；
-  per_page 改动会触发全量重建并清理多余分页文件。
+全部字段）、`pages`（当前列表的页面，按日期倒序）、`pagination`（分页信息：
+page/total_pages/multiple/has_prev/has_next/prev_url/next_url）。
+
+分页：`[build] per_page = 5` 后，首页第 2 页起为 `page/2.html`…，
+标签第 2 页起为 `tags/<tag>/2.html`…；分页 URL 自动计入 sitemap；
+per_page 改动会触发全量重建并清理多余分页文件。
 
 ## 构建特性
 
 - 增量构建：内容与模板的 SHA1 无变化时跳过，只重建改动过的页面
-- 模板改动自动触发全量重建
+- 模板改动（含重命名）自动触发全量重建
 - `static/` 原样拷贝，删除的文件会自动清理输出残留
+- 删除 Markdown 源文件后，输出 HTML 与索引/标签页/feed/sitemap 中的引用一并清理
+- `mssg clean` 可清空输出目录
 - 草稿：front matter 写 `draft: true` 的页面默认跳过，
   `mssg build --drafts` / `mssg serve --drafts` 可包含草稿
 - 标签页：front matter 写 `tags: [a, b]`，自动生成 `tags/<tag>.html`
