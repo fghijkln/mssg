@@ -273,6 +273,26 @@ class TestTemplate(unittest.TestCase):
         with self.assertRaises(ValueError):
             template.render_template("page.html", {}, templates.get)
 
+    def test_extends_three_levels(self):
+        # 三级继承：每级的 block 覆盖都生效
+        templates = {
+            "base": "B[{% block a %}A{% endblock %}][{% block b %}BaseB{% endblock %}]",
+            "mid": '{% extends "base" %}{% block a %}MidA{% endblock %}',
+            "leaf": '{% extends "mid" %}{% block b %}LeafB{% endblock %}',
+        }
+        out = template.render_template("leaf", {}, templates.get)
+        self.assertEqual(out, "B[MidA][LeafB]")
+
+    def test_include_inside_block(self):
+        # block 里的 include 在渲染时展开，能用当前上下文
+        templates = {
+            "base": "X{% block c %}base-c{% endblock %}Y",
+            "child": '{% extends "base" %}{% block c %}[{% include "p" %}]{% endblock %}',
+            "p": "P{{ v }}",
+        }
+        out = template.render_template("child", {"v": 1}, templates.get)
+        self.assertEqual(out, "X[P1]Y")
+
     def test_no_hang_battery(self):
         """防挂起电池：棘手模板组合在子进程中限时渲染。
 
