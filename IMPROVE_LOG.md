@@ -61,3 +61,16 @@
 - fuzz：种子 777，1500 用例，0 问题。
 - 提交并推送，push 前测试全绿。
 
+## 迭代 6 — 路线图① 模板继承（约 14:45）
+
+- 实现 `{% extends "base.html" %}` / `{% block name %}...{% endblock %}`：
+  - 新增 `template.render_template(name, ctx, loader)`，loader 按名取源码；
+  - 支持多级继承（子 block 覆盖父 block）、继承循环检测、父模板缺失报明确错误；
+  - extends 必须为模板的第一个 {% 标签，否则报明确错误。
+- 自举：`mssg new` 脚手架新增 base.html，page.html/index.html 改为继承它。
+- 中途修 1 个自引入 bug：`_parse` 对合法的首个 extends 也抛错 → 改为跟踪 seen_tag，只跳过合法的那个。
+- site.py 的 _render_page/_render_index 改走 render_template（模板缺失时仍用内置兜底）。
+- 新增测试 6 个：test_extends、test_extends_multilevel、test_extends_missing_parent、test_extends_cycle、test_extends_not_first_tag、test_block_without_extends。
+- 测试 43/43 全绿；端到端验证脚手架构建正常（标题 block 覆盖、页脚继承）；fuzz 种子 31337，2000 用例 0 问题。
+- README 补充继承语法说明。提交并推送，push 前测试全绿。
+

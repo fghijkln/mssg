@@ -25,6 +25,15 @@ def _sha1_file(path: Path) -> str:
     return h.hexdigest()
 
 
+def _is_draft(value) -> bool:
+    """front matter 的 draft 字段是否为真。"""
+    if value is True:
+        return True
+    if isinstance(value, str):
+        return value.strip().lower() in ("true", "yes", "1")
+    return False
+
+
 class Site:
     def __init__(self, root: str | Path, config: str = "mssg.toml"):
         self.root = Path(root)
@@ -38,6 +47,7 @@ class Site:
                 "template_dir": "templates",
                 "static_dir": "static",
                 "output_dir": "public",
+                "drafts": False,
             },
         }
         path = self.root / config
@@ -50,8 +60,9 @@ class Site:
 
     # -- 对外接口 ------------------------------------------------------
 
-    def build(self, force: bool = False) -> dict:
+    def build(self, force: bool = False, include_drafts: bool = False) -> dict:
         b = self.cfg["build"]
+        include_drafts = include_drafts or b.get("drafts", False)
         content_dir = self.root / b["content_dir"]
         template_dir = self.root / b["template_dir"]
         static_dir = self.root / b["static_dir"]
@@ -79,9 +90,17 @@ class Site:
                 url = rel[:-3] + ".html"
                 digest = _sha1_file(md_path)
                 page = self._read_page(md_path, rel, url)
-                pages.append(page)
                 out_path = output_dir / url
                 key = "page:" + rel
+                if _is_draft(page.get("draft")) and not include_drafts:
+                    # 草稿：不构建；清理之前可能已生成的旧输出
+                    if out_path.exists():
+                        out_path.unlink()
+                        rebuilt_any = True
+                    if cache.pop(key, None) is not None:
+                        rebuilt_any = True
+                    continue
+                pages.append(page)
                 if (
                     not force
                     and not templates_changed
@@ -253,6 +272,12 @@ def new_site(name: str | Path) -> Path:
         "# 你好，世界\n\n这是用 **mssg** 生成的第一篇文章。\n\n"
         "- 零依赖，只用 Python 标准库\n- 自研 Markdown 解析器\n- 自研模板引擎\n\n"
         "> 纸上得来终觉浅，绝知此事要躬行。\n",
+        encoding="utf-8",
+    )
+    (root / "content" / "draft.md").write_text(
+        "---\ntitle: 草稿示例\ndate: 2026-10-03\ndraft: true\n---\n\n"
+        "# 草稿示例\n\n这篇是草稿，`mssg build` 默认跳过，\n"
+        "`mssg build --drafts` 才会构建它。\n",
         encoding="utf-8",
     )
     (root / "static" / "style.css").write_text(

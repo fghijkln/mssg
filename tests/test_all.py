@@ -282,6 +282,30 @@ class TestBuild(unittest.TestCase):
             with self.assertRaises(FileExistsError):
                 new_site(target)
 
+    def test_draft_filtered(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = new_site(os.path.join(tmp, "demo"))
+            result = Site(root).build()
+            self.assertEqual(result["pages"], 1)
+            self.assertFalse((root / "public" / "draft.html").exists())
+            index = (root / "public" / "index.html").read_text(encoding="utf-8")
+            self.assertNotIn("草稿示例", index)
+
+    def test_draft_included(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = new_site(os.path.join(tmp, "demo"))
+            result = Site(root).build(include_drafts=True)
+            self.assertEqual(result["pages"], 2)
+            self.assertTrue((root / "public" / "draft.html").exists())
+
+    def test_draft_stale_removed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = new_site(os.path.join(tmp, "demo"))
+            Site(root).build(include_drafts=True)
+            self.assertTrue((root / "public" / "draft.html").exists())
+            Site(root).build()
+            self.assertFalse((root / "public" / "draft.html").exists())
+
 
 if __name__ == "__main__":
     unittest.main()

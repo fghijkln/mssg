@@ -23,7 +23,7 @@ def _cmd_new(args) -> int:
 
 def _cmd_build(args) -> int:
     site = Site(".", config=args.config)
-    result = site.build(force=args.force)
+    result = site.build(force=args.force, include_drafts=args.drafts)
     b = site.cfg["build"]
     print(
         "构建完成：%d 个页面，输出到 %s/%s%s"
@@ -39,7 +39,7 @@ def _cmd_build(args) -> int:
 
 def _cmd_serve(args) -> int:
     site = Site(".", config=args.config)
-    site.build()
+    site.build(include_drafts=args.drafts)
     output_dir = os.path.join(".", site.cfg["build"]["output_dir"])
     handler = functools.partial(
         http.server.SimpleHTTPRequestHandler, directory=output_dir
@@ -75,11 +75,13 @@ def main() -> int:
     p_build = sub.add_parser("build", help="构建站点")
     p_build.add_argument("-c", "--config", default="mssg.toml")
     p_build.add_argument("--force", action="store_true", help="强制全量重建")
+    p_build.add_argument("--drafts", action="store_true", help="包含草稿（draft: true）")
     p_build.set_defaults(func=_cmd_build)
 
     p_serve = sub.add_parser("serve", help="构建并本地预览")
     p_serve.add_argument("-c", "--config", default="mssg.toml")
     p_serve.add_argument("--port", type=int, default=8000)
+    p_serve.add_argument("--drafts", action="store_true", help="包含草稿（draft: true）")
     p_serve.set_defaults(func=_cmd_serve)
 
     args = parser.parse_args()
