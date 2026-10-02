@@ -31,6 +31,22 @@ class TestMarkdown(unittest.TestCase):
         self.assertIn('<a href="https://a.b">站</a>', html)
         self.assertIn('<img src="x.png" alt="图">', html)
 
+    def test_link_parens_in_url(self):
+        # URL 里的单层括号（如 Wikipedia）不应截断链接
+        html = markdown.parse("[w](https://en.wikipedia.org/wiki/X_(Y))")
+        self.assertIn('href="https://en.wikipedia.org/wiki/X_(Y)"', html)
+        html = markdown.parse("![a](http://e.com/i_(1).png)")
+        self.assertIn('src="http://e.com/i_(1).png"', html)
+        # 空目标仍不解析
+        self.assertNotIn("<a href", markdown.parse("[]()"))
+
+    def test_link_title_skipped(self):
+        # "title" 语法要能解析（标题本身不渲染）
+        html = markdown.parse('[t](http://e.com/ "ti")')
+        self.assertIn('<a href="http://e.com/">t</a>', html)
+        html = markdown.parse('![a](x.png "ti")')
+        self.assertIn('<img src="x.png" alt="a">', html)
+
     def test_lists(self):
         html = markdown.parse("- a\n- b\n  - b1\n1. x\n2. y\n")
         self.assertIn("<ul>", html)

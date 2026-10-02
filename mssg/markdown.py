@@ -20,8 +20,12 @@ import html
 import re
 
 _INLINE_CODE = re.compile(r"`([^`\n]+?)`")
-_IMAGE = re.compile(r'!\[([^\]]*)\]\(\s*([^\s)]+)(?:\s+"[^"]*")?\s*\)')
-_LINK = re.compile(r'\[([^\]]+)\]\(\s*([^\s)]+)(?:\s+"[^"]*")?\s*\)')
+# 链接目标允许单层平衡括号（如 Wikipedia 的 /wiki/X_(Y)）。
+# 注：先做 html.escape（引号→&quot;），所以标题部分用 [^)]* 通配跳过（标题不渲染）。
+_URL = r"(?:[^\s()]|\([^\s()]*\))+"
+_TITLE = r"(?:\s+[^)]*)?"
+_IMAGE = re.compile(r"!\[([^\]]*)\]\(\s*(%s)%s\s*\)" % (_URL, _TITLE))
+_LINK = re.compile(r"\[([^\]]+)\]\(\s*(%s)%s\s*\)" % (_URL, _TITLE))
 _BOLD = re.compile(r"\*\*([^*]+?)\*\*")
 _ITALIC = re.compile(r"\*([^*]+?)\*")
 _HEADING = re.compile(r"^(#{1,6})\s+(.*?)\s*#*\s*$")
