@@ -160,6 +160,30 @@ def _cmd_clean(args) -> int:
     return 0
 
 
+def _cmd_backup(args) -> int:
+    from .backup import backup_site
+
+    try:
+        path = backup_site(".", dest=args.output or None)
+    except Exception as e:
+        print("错误：%s" % e)
+        return 1
+    print("已备份到 %s" % path)
+    return 0
+
+
+def _cmd_restore(args) -> int:
+    from .backup import restore_site
+
+    try:
+        dest = restore_site(args.zip, args.dest)
+    except Exception as e:
+        print("错误：%s" % e)
+        return 1
+    print("已恢复到 %s" % dest)
+    return 0
+
+
 def _cmd_admin(args) -> int:
     from .admin import run as admin_run
 
@@ -276,6 +300,16 @@ def main() -> int:
         "--no-auth", action="store_true", help="关闭 token 鉴权（仅自己电脑上用）"
     )
     p_admin.set_defaults(func=_cmd_admin)
+
+    p_backup = sub.add_parser("backup", help="打包站点源码为 ZIP（换机/容灾备份）")
+    p_backup.add_argument("-o", "--output", default="",
+                          help="输出 ZIP 路径（默认站点目录旁 mssg-backup-时间.zip）")
+    p_backup.set_defaults(func=_cmd_backup)
+
+    p_restore = sub.add_parser("restore", help="从备份 ZIP 恢复站点")
+    p_restore.add_argument("zip", help="备份 ZIP 路径")
+    p_restore.add_argument("dest", help="恢复目标目录")
+    p_restore.set_defaults(func=_cmd_restore)
 
     args = parser.parse_args()
     return args.func(args)

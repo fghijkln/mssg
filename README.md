@@ -183,6 +183,8 @@ mssg build [--force] [--drafts] [-c mssg.toml]
 mssg serve [--port 8000] [--drafts] [--no-watch] [-c mssg.toml]
 mssg clean [-c mssg.toml]       # 清空构建输出目录（指向站点根时拒绝执行）
 mssg admin [--port 8902] [--token TOKEN] [--no-auth]  # 本地后台（仅 127.0.0.1）
+mssg backup [-o 输出.zip]        # 打包站点源码（文章/配置/模板/数据），不含构建产物与 Token
+mssg restore <备份.zip> <目录>  # 从备份 ZIP 恢复站点
 mssg --version
 ```
 
@@ -380,3 +382,19 @@ python -m unittest discover -s tests
 - [x] Page bundles + 构建时图片缩放（0.9.0）
 - [x] Asset pipeline：CSS/JS 压缩 + fingerprint（0.9.0）
 - [x] 嵌套菜单（0.9.0）
+- [x] 只读文件构建修复：构建输出强制可写（0.9.1）
+- [x] novacore 主题：深色科技风 + 滚动显现（0.10.0）
+- [x] 双语脚手架：`mssg new` 默认中英双语，英文案/示范内容自带（0.12.0）
+- [x] Cloudflare Pages 一键部署（可选）：建项目→上传→轮询→返回 pages.dev 地址，
+  DNS 故障自动走 DoH，手机上还有 WebView 兜底（0.13.0–0.13.5）
+- [x] 部署页项目列表/切换：显示账号下所有 Pages 项目及各自最新部署状态（0.13.6）
+- [x] 站点源码备份与恢复：`mssg backup` / `mssg restore`，
+  Android 端一键备份分享到微信/云盘/邮箱（0.14.0）
+
+后续想法：
+
+- [ ] Android 端从备份恢复站点（文件选择器 + 解压导入）
+- [ ] App 内版本检查（GitHub releases，有新版提示更新）
+- [ ] 手机编辑器 Markdown 快捷工具栏
+- [ ] APK 瘦身（Chaquopy runtime 裁剪调研）
+- [ ] 更多主题 / 主题市场
