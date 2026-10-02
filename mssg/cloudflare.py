@@ -202,31 +202,45 @@ def _raise_for_status(status, payload):
         raise CloudflareError("Cloudflare API 错误：%s" % msgs)
 
 
-def _req(token, method, path, data=None, content_type=None, timeout=30):
-    headers = {"Authorization": "Bearer " + token}
-    if content_type:
-        headers["Content-Type"] = content_type
+def _fail_with_action(action, func, *args, **kwargs):
     try:
-        status, payload = _call(method, path, headers, data, timeout)
-    except urllib.error.HTTPError as e:
-        raise _http_error_to_ce(e)
-    _raise_for_status(status, payload)
-    return payload
+        return func(*args, **kwargs)
+    except CloudflareError as e:
+        if action and not str(e).startswith(action):
+            raise CloudflareError("%s：%s" % (action, e))
+        raise
 
 
-def _jreq(auth, method, path, obj=None, timeout=60):
+def _req(token, method, path, data=None, content_type=None, timeout=30,
+         action=None):
+    def _do():
+        headers = {"Authorization": "Bearer " + token}
+        if content_type:
+            headers["Content-Type"] = content_type
+        try:
+            status, payload = _call(method, path, headers, data, timeout)
+        except urllib.error.HTTPError as e:
+            raise _http_error_to_ce(e)
+        _raise_for_status(status, payload)
+        return payload
+    return _fail_with_action(action, _do)
+
+
+def _jreq(auth, method, path, obj=None, timeout=60, action=None):
     """JSON 接口（用于 JWT 凭证的 assets 系列接口）。"""
-    body = json.dumps(obj).encode("utf-8") if obj is not None else None
-    try:
-        status, payload = _call(
-            method, path,
-            {"Authorization": auth, "Content-Type": "application/json"},
-            body, timeout,
-        )
-    except urllib.error.HTTPError as e:
-        raise _http_error_to_ce(e)
-    _raise_for_status(status, payload)
-    return payload
+    def _do():
+        body = json.dumps(obj).encode("utf-8") if obj is not None else None
+        try:
+            status, payload = _call(
+                method, path,
+                {"Authorization": auth, "Content-Type": "application/json"},
+                body, timeout,
+            )
+        except urllib.error.HTTPError as e:
+            raise _http_error_to_ce(e)
+        _raise_for_status(status, payload)
+        return payload
+    return _fail_with_action(action, _do)
 
 
 def _check(payload, action):
@@ -352,32 +366,27 @@ def get_upload_token(token, account_id, project):
     payload = _req(
         token, "GET",
         "/accounts/%s/pages/projects/%s/upload-token" % (account_id, project),
+        action="获取上传凭证",
     )
     return _check(payload, "获取上传凭证")["jwt"]
 
 
 def assets_check_missing(jwt, hashes):
-    """返回服务端还没有的哈希列表。"""
+    """返回服务端还没有的哈希列表。jwt 为裸 JWT（不带 Bearer 前缀）。"""
     payload = _jreq("Bearer " + jwt, "POST", "/pages/assets/check-missing",
-                    {"hashes": hashes})
+                    {"hashes": hashes}, action="检查缺失文件")
     return _check(payload, "检查缺失文件")
 
 
 def assets_upload(jwt, items):
-    """items: [(hash, base64内容, content_type)]。"""
+    """items: [(hash, base64内容, content_type)]。jwt 为裸 JWT。"""
     body = [
         {"key": h, "value": b64, "metadata": {"contentType": ct}, "base64": True}
         for h, b64, ct in items
     ]
     payload = _jreq("Bearer " + jwt, "POST", "/pages/assets/upload", body,
-                    timeout=120)
+                    timeout=120, action="上传文件")
     return _check(payload, "上传文件")
-
-
-def assets_upsert_hashes(jwt, hashes):
-    payload = _jreq("Bearer " + jwt, "POST", "/pages/assets/upsert-hashes",
-                    {"hashes": hashes})
-    return _check(payload, "确认文件")
 
 
 def create_deployment(token, account_id, project, manifest):
@@ -389,7 +398,7 @@ def create_deployment(token, account_id, project, manifest):
     payload = _req(
         token, "POST",
         "/accounts/%s/pages/projects/%s/deployments" % (account_id, project),
-        data=body, content_type=ctype, timeout=120,
+        data=body, content_type=ctype, timeout=120, action="创建部署",
     )
     return _check(payload, "创建部署")
 
@@ -413,9 +422,8 @@ def deploy_directory(token, account_id, project, public_dir,
     if on_progress:
         on_progress("upload")
     jwt = get_upload_token(token, account_id, project)
-    auth = "Bearer " + jwt
     hashes = [h for h, _r, _n, _c, _d in hashed]
-    missing = set(assets_check_missing(auth, hashes))
+    missing = set(assets_check_missing(jwt, hashes))
 
     batch, batch_size = [], 0
     for h, rel, name, ctype, data in hashed:
@@ -424,13 +432,12 @@ def deploy_directory(token, account_id, project, public_dir,
         b64 = base64.b64encode(data).decode("ascii")
         if batch and (len(batch) >= 500
                       or batch_size + len(b64) > 20 * 1024 * 1024):
-            assets_upload(auth, batch)
+            assets_upload(jwt, batch)
             batch, batch_size = [], 0
         batch.append((h, b64, ctype))
         batch_size += len(b64)
     if batch:
-        assets_upload(auth, batch)
-    assets_upsert_hashes(auth, hashes)
+        assets_upload(jwt, batch)
 
     if on_progress:
         on_progress("wait")

@@ -110,6 +110,11 @@ class TestCloudflare(unittest.TestCase):
             ctype = req.headers.get("Content-type", "")
             body = (req.data and "json" in ctype
                     and json.loads(req.data.decode("utf-8")))
+            authz = req.headers.get("Authorization", "")
+            if "/pages/assets/" in url:
+                # JWT 接口的头必须是恰好一个 Bearer 前缀
+                self.assertEqual(authz, "Bearer jwt123",
+                                 "Authorization 头被拼错：%r" % authz)
             if url.endswith("/upload-token"):
                 return _FakeResp(
                     {"success": True, "result": {"jwt": "jwt123"}})
@@ -119,9 +124,6 @@ class TestCloudflare(unittest.TestCase):
                     {"success": True, "result": body["hashes"]})
             if url.endswith("/assets/upload"):
                 seen["uploaded"] = [it["key"] for it in body]
-                return _FakeResp({"success": True, "result": []})
-            if url.endswith("/upsert-hashes"):
-                seen["upserted"] = True
                 return _FakeResp({"success": True, "result": []})
             if url.endswith("/deployments") and req.method == "POST":
                 seen["ctype"] = req.headers.get("Content-type")
@@ -153,7 +155,6 @@ class TestCloudflare(unittest.TestCase):
         self.assertEqual(out["deployment_id"], "dep1")
         self.assertEqual(len(seen["hashes"]), 1)
         self.assertEqual(seen["uploaded"], seen["hashes"])
-        self.assertTrue(seen["upserted"])
         self.assertIn("multipart/form-data", seen["ctype"])
 
     def test_file_hash_stable(self):

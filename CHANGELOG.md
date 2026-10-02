@@ -1,5 +1,16 @@
 # 更新日志
 
+## 0.13.5（2026-10-02）
+
+修部署报 `Authorization failed`：
+
+- 真因：JWT 请求头被拼成 `Bearer Bearer <jwt>`（双重前缀），
+  deploy_directory 传了已带前缀的 auth 字符串，函数内又拼一次
+- 改为全程传递裸 JWT，只在发请求时拼一次前缀；加回归测试锁定
+- 去掉 wrangler 协议里没有的 upsert-hashes 一步
+- _req/_jreq 支持 action 参数，出错信息带步骤名，方便定位
+
+## 
 ## 0.13.4（2026-10-02）
 
 修部署接口要求 manifest 字段（`A "manifest" field was expected`）：
