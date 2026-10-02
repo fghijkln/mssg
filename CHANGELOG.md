@@ -1,5 +1,20 @@
 # 更新日志
 
+## 0.13.0（2026-10-02）
+
+Cloudflare Pages 一键部署（可选，220 测试全绿）：
+
+- 新增 `mssg/cloudflare.py`：Pages Direct Upload API 客户端，
+  只用标准库（urllib），无新依赖
+- 建项目（不存在则自动创建）→ multipart 上传 public/ →
+  轮询部署状态 → 返回 `https://<项目>.pages.dev`
+- App「导出」里新增「部署到 Cloudflare Pages」：粘贴 API Token
+  （Cloudflare Pages / 编辑权限）即连接，一键上线；
+  不连也能继续用原来的 ZIP 导出，完全可选
+- 单文件 25 MiB / 2 万文件上限按 Cloudflare 限制校验，
+  Token 只存本机（600 权限）
+
+## 
 ## 0.12.0（2026-10-02）
 
 脚手架默认双语 + 英文切换器（211 测试全绿）：
