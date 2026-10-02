@@ -210,6 +210,15 @@ class TestTemplate(unittest.TestCase):
         # 未闭合的 {{ 按普通文本保留
         self.assertEqual(template.render("a {{ b", {}), "a {{ b")
 
+    def test_unclosed_markers_consistent(self):
+        # 未闭合的标记无论在行首还是行中，都按普通文本保留（行为一致）
+        self.assertEqual(template.render("{{ x }", {"x": 1}), "{{ x }")
+        self.assertEqual(template.render("a{{ x }", {"x": 1}), "a{{ x }")
+        self.assertEqual(template.render("{# b", {}), "{# b")
+        self.assertEqual(template.render("a{# b", {}), "a{# b")
+        self.assertEqual(template.render("{% if x", {}), "{% if x")
+        self.assertEqual(template.render("a{% if x", {}), "a{% if x")
+
     def test_extends(self):
         templates = {
             "base.html": (

@@ -80,7 +80,7 @@ def _parse_template(src: str, loader) -> tuple[str | None, list, dict]:
     tokens = list(_TOKEN.split(src))
     extends = None
     for tok in tokens:
-        if tok.startswith("{%"):
+        if tok.startswith("{%") and tok.endswith("%}"):
             inner = tok[2:-2].strip()
             if _tag_keyword(inner) == "extends":
                 m = re.match(r"""extends\s+["']([^"']+)["']$""", inner)
@@ -249,14 +249,16 @@ def _parse(
     seen_tag = False
     while pos < len(tokens):
         tok = tokens[pos]
-        if tok.startswith("{#"):
+        # 注意：切分后的文本块可能以 {{ 开头（如 "{{ x }" 未闭合），
+        # 必须是完整的标记（有开闭定界符）才按标签处理，否则按普通文本
+        if tok.startswith("{#") and tok.endswith("#}"):
             seen_tag = True
             pos += 1  # 注释：丢弃
-        elif tok.startswith("{{"):
+        elif tok.startswith("{{") and tok.endswith("}}"):
             seen_tag = True
             nodes.append(_Var(tok[2:-2].strip()))
             pos += 1
-        elif tok.startswith("{%"):
+        elif tok.startswith("{%") and tok.endswith("%}"):
             inner = tok[2:-2].strip()
             kw = _tag_keyword(inner)
             if kw in stops:

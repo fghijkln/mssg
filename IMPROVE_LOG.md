@@ -640,3 +640,20 @@
   与 build/serve 的友好报错不一致 → 补上 try/except。
 - 测试 93/93 全绿（exit=0）。提交并推送。
 
+## 迭代 71 — mssg new 目标为文件时 traceback（约 16:35）
+
+- 发现**真 bug**：`mssg new myfile`（myfile 已存在为文件）时，
+  `any(root.iterdir())` 抛 NotADirectoryError traceback。
+- 修：`new_site` 先判 `is_file()`，报明确 FileExistsError（CLI 已捕获→友好信息）。
+- 新增测试 test_new_rejects_existing_file。测试 94/94 全绿（exit=0）。
+- 另：又犯了一次无意义 edit 吃换行（注释行，未破环），已修复。
+  再次强调：edit 必须包含实质改动。
+- 提交并推送。
+
+## 迭代 72 — 列表内 - - - 的行为确认（约 16:40）
+
+- 确认：独立行的 `- - -` → `<hr>`；列表内的 `- - -` → 列表项。
+  后者是 CommonMark 歧义点（列表上下文中 `- ` 优先为列表标记），
+  两种行为都可辩护，保留现状不改。
+- 无代码改动。
+
