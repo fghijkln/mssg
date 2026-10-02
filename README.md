@@ -120,7 +120,8 @@ per_page 改动会触发全量重建并清理多余分页文件。
 - 草稿：front matter 写 `draft: true` 的页面默认跳过，
   `mssg build --drafts` / `mssg serve --drafts` 可包含草稿
 - 标签页：front matter 写 `tags: [a, b]`，自动生成 `tags/<tag>.html`
-  （模板 `tag.html`，变量：`tag`、`pages`）
+  （模板 `tag.html`，变量：`tag`、`pages`）；
+  标签名保留原文（含中文），`/` `\` 会转为 `-`，重名加 `-2` 后缀
 - 归档页：自动生成 `archive.html`，按年月分组
   （模板 `archive.html`，变量：`groups`，每组有 `ym` 与 `pages`）
 - Atom 订阅：自动生成 `feed.xml`（最近 20 篇），`[build] feed = false` 可关闭
