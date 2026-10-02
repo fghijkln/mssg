@@ -155,13 +155,16 @@ mssg post <slug> [-t 标题]      # 同上，兼容别名
 mssg build [--force] [--drafts] [-c mssg.toml]
 mssg serve [--port 8000] [--drafts] [--no-watch] [-c mssg.toml]
 mssg clean [-c mssg.toml]       # 清空构建输出目录（指向站点根时拒绝执行）
-mssg admin [--port 8902] [-c mssg.toml]  # 本地内容管理后台（仅 127.0.0.1）
+mssg admin [--port 8902] [--token TOKEN] [--no-auth]  # 本地后台（仅 127.0.0.1）
 mssg --version
 ```
 
 `mssg admin` 在本机起一个网页后台：文章列表、新建、编辑
 （标题/日期/标签/分类/草稿/正文）、删除，保存后自动重建。
 只监听回环地址，不对外暴露；不要把它放到公网。
+默认需要 token 鉴权：启动时打印的一次性 token 拼在 URL 里
+（`http://127.0.0.1:8902/?token=xxx`），首次访问后种 cookie；
+`--token` 可指定固定 token，`--no-auth` 关闭鉴权（仅自己电脑上用）。
 
 ## Markdown（Python-Markdown）
 
@@ -175,6 +178,18 @@ mssg --version
 - `sane_lists`：更符合直觉的列表解析
 
 行内 HTML 原样通过（`<!--more-->` 摘要标记依赖它）。
+
+扩展可在 `mssg.toml` 里配置：
+
+```toml
+[markdown]
+extensions = ["extra", "codehilite", "toc", "sane_lists"]
+[markdown.extension_configs.codehilite]
+css_class = "codehilite"
+```
+
+`extension_configs` 透传给 Python-Markdown（TOML 写不出的函数值
+如 `toc.slugify` 保持内置默认）。
 
 ## 模板（Jinja2）
 
@@ -251,6 +266,26 @@ per_page 改动会触发全量重建并清理多余分页文件。
   超过 `image_max_width` 则等比缩放（Pillow LANCZOS）；损坏图片回退普通拷贝
 - 联系表单：`[site.form] endpoint` 填入 Formspree / Getform 等第三方服务地址，
   `/contact.html` 的表单即提交到该地址；留空则显示配置提示
+- 插件：站点根目录建 `plugins/`，每个 `*.py` 自动加载；两种注册方式：
+
+  ```python
+  # plugins/myplugin.py
+  def page_html(page, html):
+      return html.replace("</body>", "<!-- hi --></body>")
+
+  HOOKS = {"page_html": page_html}   # 或定义 register(hooks) 函数
+  ```
+
+  事件：`build_started(site)` / `page_read(page)`（元数据读入后，
+  正文尚未解析） / `page_html(page, html)`（内容页渲染后，链式返回
+  新 HTML） / `build_finished(site, result)`。页面渲染在线程池中进行，
+  钩子函数须线程安全；插件加载失败会中断构建并报错。
+- 图片缓存：源文件指纹 + 压缩配置不变时跳过重复优化，
+  改 `image_max_width` / `image_quality` 才重新处理
+- 大站优化：页面元数据与 Markdown 解析分离，无改动时跳过解析；
+  Jinja2 模板按内容缓存不重复编译；`search.json` 增量更新
+  （只重建新增/改动页面的条目）。1000 页站点：冷构建约 5 秒，
+  热重建约 0.5 秒，单页改动约 0.6 秒（`python tools/bench.py` 可复测）
 
 ## 测试
 

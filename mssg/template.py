@@ -13,6 +13,8 @@ mssg 额外注册：date(fmt)（"2026-10-02" → 按格式输出）。
 
 from __future__ import annotations
 
+import hashlib
+import threading
 from datetime import datetime
 
 from jinja2 import BaseLoader, DictLoader, Environment, TemplateError, TemplateNotFound
@@ -75,9 +77,46 @@ def render(template_str: str, ctx: dict, templates: dict | None = None) -> str:
         raise ValueError("模板错误：%s" % e)
 
 
+_ENV_CACHE: dict = {}
+_ENV_LOCK = threading.Lock()
+_ENV_CACHE_MAX = 8
+
+
+def _templates_digest(templates: dict) -> str:
+    h = hashlib.sha1()
+    for name in sorted(templates):
+        h.update(name.encode("utf-8"))
+        h.update(b"\x00")
+        h.update(templates[name].encode("utf-8"))
+        h.update(b"\x00")
+    return h.hexdigest()
+
+
+def _cached_env(templates: dict) -> Environment:
+    """按模板内容缓存 Environment，避免每次渲染重编译（线程安全）。
+
+    Jinja2 的 Environment.get_template/render 并发调用是线程安全的。
+    """
+    digest = _templates_digest(templates)
+    env = _ENV_CACHE.get(digest)
+    if env is None:
+        with _ENV_LOCK:
+            env = _ENV_CACHE.get(digest)
+            if env is None:
+                env = _make_env(templates)
+                _ENV_CACHE[digest] = env
+                while len(_ENV_CACHE) > _ENV_CACHE_MAX:
+                    _ENV_CACHE.pop(next(iter(_ENV_CACHE)))
+    return env
+
+
 def render_template(name: str, ctx: dict, templates: dict) -> str:
-    """按名称渲染模板（支持 extends/include 跨模板引用）。模板错误统一转为 ValueError。"""
-    env = _make_env(templates)
+    """按名称渲染模板（支持 extends/include 跨模板引用）。模板错误统一转为 ValueError。
+
+    同一批模板的 Environment 会被缓存复用，不重复编译。
+    （templates 为可调用 loader 时不缓存，保持旧行为。）
+    """
+    env = _cached_env(templates) if isinstance(templates, dict) else _make_env(templates)
     try:
         return env.get_template(name).render(dict(ctx or {}))
     except RecursionError:

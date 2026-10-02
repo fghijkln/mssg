@@ -3,4 +3,4 @@
 基于 Python-Markdown、Jinja2、PyYAML、Pygments，只做薄封装。
 """
 
-__version__ = "0.7.0"
+__version__ = "0.8.0"

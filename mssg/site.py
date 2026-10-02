@@ -17,7 +17,11 @@ from xml.sax.saxutils import escape as _xml_escape
 
 from . import markdown as _md
 from . import template as _tpl
+from . import themes as _themes
+from . import images as _images
 from .frontmatter import split as _split_fm
+from .hooks import Hooks
+from .scaffold import new_site
 
 _FIRST_HEADING = re.compile(r"^#{1,6}\s+(.+?)\s*#*\s*$", re.M)
 _HEADING_RE = re.compile(r"^#{1,6}\s+")
@@ -167,7 +171,7 @@ def _page_categories(page: dict) -> list:
 _MORE_MARKER = "<!--more-->"
 
 
-def _split_summary(body_md: str) -> tuple:
+def _split_summary(body_md: str, extensions=None, extension_configs=None) -> tuple:
     """摘要：<!--more--> 之前的内容；没有标记则取首段。
 
     返回 (summary_html, summary_text)。
@@ -188,7 +192,7 @@ def _split_summary(body_md: str) -> tuple:
                 break
             lines.append(ln)
         head = "\n".join(lines)
-    html_sum = _md.parse(head)
+    html_sum = _md.parse(head, extensions=extensions, extension_configs=extension_configs)
     text = _TITLE_TAG_RE.sub("", html_sum)
     text = re.sub(r"\s+", " ", text).strip()
     return html_sum, text[:200]
@@ -214,6 +218,7 @@ class Site:
         self.config_path = self.root / config
         self.cfg = self._load_config(config)
         self._data: dict = {}
+        self.hooks = Hooks()
 
     def _ctx(self, site=None, lang=None, **kw) -> dict:
         """模板公共上下文：site + data + 语言变量 + 调用方变量。"""
@@ -273,12 +278,13 @@ class Site:
                 "drafts": False,
             },
             "i18n": {"default": "zh", "langs": []},
+            "markdown": {},
         }
         path = self.root / config
         if path.exists():
             with open(path, "rb") as f:
                 user = tomllib.load(f)
-            for section in ("site", "build", "i18n"):
+            for section in ("site", "build", "i18n", "markdown"):
                 cfg[section].update(user.get(section, {}))
         return cfg
 
@@ -332,11 +338,28 @@ class Site:
         }
         return self._deep_merge(base, copy.deepcopy(self.cfg["site"].get(lang, {})))
 
+    def _md_options(self) -> tuple:
+        """[markdown] 配置 → (extensions, extension_configs)。
+
+        extension_configs 与内置默认深层合并（TOML 写不出的函数值如
+        toc.slugify 保持默认）。
+        """
+        m = self.cfg.get("markdown", {})
+        exts = m.get("extensions") or list(_md.DEFAULT_EXTENSIONS)
+        cfgs = copy.deepcopy(_md.DEFAULT_EXTENSION_CONFIGS)
+        self._deep_merge(cfgs, m.get("extension_configs", {}) or {})
+        return exts, cfgs
+
     # -- 对外接口 ------------------------------------------------------
 
     def build(self, force: bool = False, include_drafts: bool = False) -> dict:
         # 每次构建都重读配置：serve 监听时修改 mssg.toml 能立即生效
         self.cfg = self._load_config(self.config_name)
+        self._md_opts = self._md_options()
+        # 插件：每次构建重载，serve 监听下改 plugins/ 即生效
+        self.hooks = Hooks()
+        self.hooks.load_dir(self.root / "plugins")
+        self.hooks.run("build_started", self)
         b = self.cfg["build"]
         include_drafts = include_drafts or b.get("drafts", False)
         content_dir = self.root / b["content_dir"]
@@ -410,7 +433,7 @@ class Site:
                 url = prefix + base_rel[:-3] + ".html"
                 digest = _sha1_file(md_path)
                 try:
-                    page = self._read_page(md_path, rel, url)
+                    page, body = self._read_meta(md_path, rel, url)
                 except Exception as e:
                     raise ValueError("解析页面失败 %s：%s" % (rel, e))
                 page["lang"] = lang
@@ -425,6 +448,8 @@ class Site:
                     if cache.pop(key, None) is not None:
                         rebuilt_any = True
                     continue
+                self.hooks.run("page_read", page)
+                page["_body"] = body  # 轻量页保留正文，供 _ensure_content 按需解析
                 pages.append(page)
                 if (
                     not force
@@ -433,7 +458,8 @@ class Site:
                     and cache.get(key) == digest
                     and out_path.exists()
                 ):
-                    continue
+                    continue  # 缓存命中：跳过 Markdown 重量解析
+                self._parse_content(page, body)
                 render_jobs.append((page, out_path, key, digest, rel))
 
         # 把翻译映射挂到页面上（_render_page 需要 page["translations"]）
@@ -659,37 +685,39 @@ class Site:
                 if src_dir.is_dir():
                     for sp in sorted(src_dir.rglob("*")):
                         if sp.is_file():
-                            self._copy_static_file(
-                                sp, output_dir / sp.relative_to(src_dir),
-                                max_w, quality,
-                            )
+                            rel = sp.relative_to(src_dir).as_posix()
+                            dst = output_dir / rel
+                            if _images.is_image(sp):
+                                # 图片缓存：源文件指纹 + 压缩配置不变且输出存在则跳过
+                                sig = "%s|%s|%s" % (_sha1_file(sp), max_w, quality)
+                                if cache.get("img:" + rel) == sig and dst.exists():
+                                    continue
+                                _images.copy_static_file(sp, dst, max_w, quality)
+                                cache["img:" + rel] = sig
+                            else:
+                                _images.copy_static_file(sp, dst, max_w, quality)
             cache["static_files"] = sorted(new_static)
+            # 清理已删除图片的缓存指纹
+            for key in [k for k in cache if k.startswith("img:") and k[4:] not in new_static]:
+                del cache[key]
 
         cache["templates"] = tpl_digest
         cache["config"] = config_digest
         self._save_cache(cache_path, cache)
-        return {"pages": len(pages), "rebuilt": rebuilt_any}
+        result = {"pages": len(pages), "rebuilt": rebuilt_any}
+        self.hooks.run("build_finished", self, result)
+        return result
 
     # -- 内部 ----------------------------------------------------------
 
     @staticmethod
     def available_themes() -> list:
-        """内置主题列表（mssg/themes/<name>/）。"""
-        base = Path(__file__).parent / "themes"
-        if not base.is_dir():
-            return []
-        return sorted(p.name for p in base.iterdir() if p.is_dir())
+        """内置主题列表（见 mssg/themes.py）。"""
+        return _themes.available_themes()
 
     def _theme_dirs(self) -> tuple:
         """当前主题的 (templates_dir, static_dir)；主题不存在时报 ValueError。"""
-        theme = self.cfg["site"].get("theme", "company") or "company"
-        tdir = Path(__file__).parent / "themes" / theme
-        if not tdir.is_dir():
-            raise ValueError(
-                "未知主题 %r，可用主题：%s（mssg.toml 里改 [site] theme）"
-                % (theme, ", ".join(self.available_themes()) or "无")
-            )
-        return tdir / "templates", tdir / "static"
+        return _themes.theme_dirs(self.cfg["site"].get("theme", "company"))
 
     def _load_templates(self, template_dir: Path) -> dict:
         """加载模板：主题模板为底，站点 templates/ 覆盖同名文件。"""
@@ -704,6 +732,16 @@ class Site:
         return templates
 
     def _read_page(self, md_path: Path, rel: str, url: str) -> dict:
+        """读入页面：轻量元数据 + 重量 Markdown 解析（完整页面）。"""
+        page, body = self._read_meta(md_path, rel, url)
+        return self._parse_content(page, body)
+
+    def _read_meta(self, md_path: Path, rel: str, url: str) -> tuple:
+        """轻量读取：front matter + 标题/日期/标签，不做 Markdown 解析。
+
+        返回 (page, body)；缓存命中时直接用 page（列表页/订阅只需元数据），
+        未命中时再对 body 做重量解析。
+        """
         text = md_path.read_text(encoding="utf-8-sig")
         meta, body = _split_fm(text)
         title = meta.get("title") or self._first_heading(body) or md_path.stem
@@ -715,17 +753,30 @@ class Site:
         page = {
             "title": title,
             "date": str(date),
-            "content": _md.parse(body),
             "url": url,
         }
-        summary_html, summary_text = _split_summary(body)
-        page["summary"] = summary_html
-        page["summary_text"] = summary_text
-        page["toc"] = _md.extract_toc(body)
         for key, value in meta.items():
             if key not in page:
                 page[key] = value
+        return page, body
+
+    def _parse_content(self, page: dict, body: str) -> dict:
+        """重量解析：Markdown → content/summary/toc（就地修改 page 并返回）。"""
+        exts, cfgs = self._md_opts
+        page["content"] = _md.parse(body, extensions=exts, extension_configs=cfgs)
+        summary_html, summary_text = _split_summary(
+            body, extensions=exts, extension_configs=cfgs
+        )
+        page["summary"] = summary_html
+        page["summary_text"] = summary_text
+        page["toc"] = _md.extract_toc(body, extensions=exts, extension_configs=cfgs)
         return page
+
+    def _ensure_content(self, pages: list) -> None:
+        """把轻量页面按需升级为完整页面（feed/搜索索引渲染前调用）。"""
+        for p in pages:
+            if "content" not in p:
+                self._parse_content(p, p.pop("_body", ""))
 
     @staticmethod
     def _first_heading(body: str) -> str:
@@ -750,6 +801,7 @@ class Site:
                 "<body>{{ page.content }}</body></html>",
                 ctx,
             )
+        out = self.hooks.filter_html("page_html", page, out)
         out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_text(out, encoding="utf-8")
 
@@ -767,6 +819,10 @@ class Site:
         made = set()
         for i, chunk in enumerate(chunks, start=1):
             rel = prefix + ("index.html" if i == 1 else "page/%d.html" % i)
+            dest = output_dir / rel
+            made.add(rel)
+            if not rebuilt_any and dest.exists():
+                continue  # 无改动：连模板都不渲染
             prev_rel = (
                 None
                 if i == 1
@@ -784,11 +840,8 @@ class Site:
                 out = _tpl.render_template("index.html", ctx, templates)
             else:
                 out = _tpl.render(_INDEX_FALLBACK, ctx)
-            dest = output_dir / rel
-            made.add(rel)
-            if rebuilt_any or not dest.exists():
-                dest.parent.mkdir(parents=True, exist_ok=True)
-                dest.write_text(out, encoding="utf-8")
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_text(out, encoding="utf-8")
         return made
 
     def _render_taxonomy(
@@ -839,6 +892,10 @@ class Site:
                 next_rel = (
                     prefix + "%s/%s/%d.html" % (dirname, tag_q, i + 1) if i < total else None
                 )
+                dest = output_dir / rel
+                made.add(rel)
+                if not rebuilt_any and dest.exists():
+                    continue  # 无改动：连模板都不渲染
                 ctx = self._ctx(
                     site=site,
                     lang=lang,
@@ -851,11 +908,8 @@ class Site:
                     out = _tpl.render_template(tpl_name, ctx, templates)
                 else:
                     out = _tpl.render(fallback, ctx)
-                dest = output_dir / rel
-                made.add(rel)
-                if rebuilt_any or not dest.exists():
-                    dest.parent.mkdir(parents=True, exist_ok=True)
-                    dest.write_text(out, encoding="utf-8")
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                dest.write_text(out, encoding="utf-8")
         return made
 
     def _render_tag_pages(
@@ -888,6 +942,10 @@ class Site:
         *, prefix: str = "", site=None, lang=None, translations=None,
     ) -> str:
         """生成 archive.html（按年月归档），返回相对路径。"""
+        rel = prefix + "archive.html"
+        dest = output_dir / rel
+        if not rebuilt_any and dest.exists():
+            return rel
         groups: dict[str, list] = {}
         for p in pages:
             groups.setdefault(str(p["date"])[:7], []).append(p)
@@ -902,33 +960,50 @@ class Site:
             out = _tpl.render_template("archive.html", ctx, templates)
         else:
             out = _tpl.render(_ARCHIVE_FALLBACK, ctx)
-        rel = prefix + "archive.html"
-        dest = output_dir / rel
-        if rebuilt_any or not dest.exists():
-            dest.write_text(out, encoding="utf-8")
+        dest.write_text(out, encoding="utf-8")
         return rel
 
+    def _search_entry(self, p: dict) -> dict:
+        """单页的搜索索引条目（需要 p 有 content）。"""
+        text = re.sub(r"<[^>]+>", " ", str(p.get("content", "")))
+        text = re.sub(r"\s+", " ", text).strip()[:2000]
+        return {
+            "title": p.get("title", ""),
+            "url": p.get("url", ""),
+            "date": str(p.get("date", ""))[:10],
+            "lang": p.get("lang", self._default_lang()),
+            "text": text,
+        }
+
     def _render_search_index(self, pages: list, output_dir: Path, rebuilt_any: bool) -> str:
-        """生成 search.json（站内搜索索引：标题/URL/日期/语言/正文），返回相对路径。"""
-        items = []
-        for p in pages:
-            text = re.sub(r"<[^>]+>", " ", str(p.get("content", "")))
-            text = re.sub(r"\s+", " ", text).strip()[:2000]
-            items.append(
-                {
-                    "title": p.get("title", ""),
-                    "url": p.get("url", ""),
-                    "date": str(p.get("date", ""))[:10],
-                    "lang": p.get("lang", self._default_lang()),
-                    "text": text,
-                }
-            )
+        """生成 search.json（站内搜索索引），返回相对路径。
+
+        增量更新：内容未变的页面（轻量页）复用旧索引条目，只解析新增/
+        改动的页面。
+        """
         rel = "search.json"
         dest = output_dir / rel
-        if rebuilt_any or not dest.exists():
-            dest.write_text(
-                json.dumps(items, ensure_ascii=False), encoding="utf-8"
-            )
+        if not rebuilt_any and dest.exists():
+            return rel
+        old = {}
+        if dest.exists():
+            try:
+                old = {
+                    i["url"]: i
+                    for i in json.loads(dest.read_text(encoding="utf-8"))
+                }
+            except (OSError, ValueError):
+                old = {}
+        items = []
+        for p in pages:
+            if "content" in p or p.get("url") not in old:
+                self._ensure_content([p])
+                items.append(self._search_entry(p))
+            else:
+                items.append(old[p["url"]])
+        dest.write_text(
+            json.dumps(items, ensure_ascii=False), encoding="utf-8"
+        )
         return rel
 
     _SEARCH_FALLBACK = """<!doctype html><html lang="{{ lang }}"><head><meta charset="utf-8">
@@ -963,6 +1038,10 @@ document.getElementById("q").addEventListener("input", e => {
         *, prefix: str = "", site=None, lang=None, translations=None,
     ) -> str:
         """生成 search.html（站内搜索页，前端 JS 读取 search.json），返回相对路径。"""
+        rel = prefix + "search.html"
+        dest = output_dir / rel
+        if not rebuilt_any and dest.exists():
+            return rel
         ctx = self._ctx(
             site=site, lang=lang, translations=translations or {}
         )
@@ -970,11 +1049,8 @@ document.getElementById("q").addEventListener("input", e => {
             out = _tpl.render_template("search.html", ctx, templates)
         else:
             out = _tpl.render(self._SEARCH_FALLBACK, ctx)
-        rel = prefix + "search.html"
-        dest = output_dir / rel
-        if rebuilt_any or not dest.exists():
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            dest.write_text(out, encoding="utf-8")
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text(out, encoding="utf-8")
         return rel
 
     def _render_feed(
@@ -982,6 +1058,11 @@ document.getElementById("q").addEventListener("input", e => {
         *, prefix: str = "", site=None,
     ) -> str:
         """生成 Atom 1.0 订阅 feed.xml（最近 20 篇），返回相对路径。"""
+        rel = prefix + "feed.xml"
+        dest = output_dir / rel
+        if not rebuilt_any and dest.exists():
+            return rel
+        self._ensure_content(pages[:20])
         site = site if site is not None else self.cfg["site"]
         base = site.get("base_url", "").rstrip("/")
         entries = []
@@ -1028,16 +1109,19 @@ document.getElementById("q").addEventListener("input", e => {
                 "\n".join(entries),
             )
         )
-        dest = output_dir / (prefix + "feed.xml")
-        if rebuilt_any or not dest.exists():
-            dest.write_text(out, encoding="utf-8")
-        return prefix + "feed.xml"
+        dest.write_text(out, encoding="utf-8")
+        return rel
 
     def _render_rss(
         self, pages: list, output_dir: Path, rebuilt_any: bool,
         *, prefix: str = "", site=None,
     ) -> str:
         """生成 RSS 2.0 订阅 feed_rss.xml（最近 20 篇），返回相对路径。"""
+        rel = prefix + "feed_rss.xml"
+        dest = output_dir / rel
+        if not rebuilt_any and dest.exists():
+            return rel
+        self._ensure_content(pages[:20])
         site = site if site is not None else self.cfg["site"]
         base = site.get("base_url", "").rstrip("/")
         items = []
@@ -1083,26 +1167,28 @@ document.getElementById("q").addEventListener("input", e => {
                 "\n".join(items),
             )
         )
-        dest = output_dir / (prefix + "feed_rss.xml")
-        if rebuilt_any or not dest.exists():
-            dest.write_text(out, encoding="utf-8")
-        return prefix + "feed_rss.xml"
+        dest.write_text(out, encoding="utf-8")
+        return rel
 
     def _render_robots(self, output_dir: Path, rebuilt_any: bool) -> str:
         """生成 robots.txt，返回相对路径。"""
+        dest = output_dir / "robots.txt"
+        if not rebuilt_any and dest.exists():
+            return "robots.txt"
         base = self.cfg["site"].get("base_url", "").rstrip("/")
         lines = ["User-agent: *", "Allow: /"]
         if base:
             lines.append("Sitemap: %s/sitemap.xml" % base)
-        dest = output_dir / "robots.txt"
-        if rebuilt_any or not dest.exists():
-            dest.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        dest.write_text("\n".join(lines) + "\n", encoding="utf-8")
         return "robots.txt"
 
     def _render_sitemap(
         self, pages: list, output_dir: Path, rebuilt_any: bool, extra=()
     ) -> str:
         """生成 sitemap.xml；extra 为分页等附加相对路径。返回相对路径。"""
+        dest = output_dir / "sitemap.xml"
+        if not rebuilt_any and dest.exists():
+            return "sitemap.xml"
         base = self.cfg["site"].get("base_url", "").rstrip("/")
 
         def abs_url(rel: str) -> str:
@@ -1141,43 +1227,8 @@ document.getElementById("q").addEventListener("input", e => {
                 ]
             )
         lines.append("</urlset>")
-        dest = output_dir / "sitemap.xml"
-        if rebuilt_any or not dest.exists():
-            dest.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        dest.write_text("\n".join(lines) + "\n", encoding="utf-8")
         return "sitemap.xml"
-
-    @staticmethod
-    @staticmethod
-    def _copy_static_file(src: Path, dst: Path, max_w: int, quality: int) -> None:
-        """拷贝静态文件；图片按配置压缩/缩放（Pillow），失败时回退普通拷贝。
-
-        max_w <= 0 表示不缩放只压缩。
-        """
-        if src.suffix.lower() in (".jpg", ".jpeg", ".png", ".webp"):
-            try:
-                from PIL import Image
-
-                im = Image.open(src)
-                if max_w and im.width > max_w:
-                    im = im.resize(
-                        (max_w, max(1, round(im.height * max_w / im.width))),
-                        Image.LANCZOS,
-                    )
-                dst.parent.mkdir(parents=True, exist_ok=True)
-                suf = src.suffix.lower()
-                if suf in (".jpg", ".jpeg"):
-                    if im.mode in ("RGBA", "LA", "P"):
-                        im = im.convert("RGB")
-                    im.save(dst, quality=int(quality or 82), optimize=True)
-                elif suf == ".png":
-                    im.save(dst, optimize=True)
-                else:
-                    im.save(dst)
-                return
-            except Exception:
-                pass
-        dst.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(src, dst)
 
     @staticmethod
     def _clean_stale(output_dir: Path, old_files: list, made: set) -> None:
@@ -1202,209 +1253,3 @@ document.getElementById("q").addEventListener("input", e => {
     def _save_cache(path: Path, cache: dict) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(cache, ensure_ascii=False), encoding="utf-8")
-
-
-def new_site(name: str | Path, theme: str = "company") -> Path:
-    """生成站点脚手架，返回站点根目录。目标为非空目录时拒绝覆盖。
-
-    模板与主题静态资源来自内置主题（mssg/themes/<theme>/），不在站点里
-    复制一份；换主题只改 mssg.toml 里 [site] theme。想微调单个模板时，
-    在站点 templates/ 下放同名文件即可覆盖主题的对应文件。
-    """
-    if theme not in Site.available_themes():
-        raise ValueError(
-            "未知主题 %r，可用主题：%s" % (theme, ", ".join(Site.available_themes()))
-        )
-    root = Path(name)
-    if root.is_file():
-        raise FileExistsError("目标已存在且为文件，拒绝覆盖：%s" % root)
-    if root.exists() and any(root.iterdir()):
-        raise FileExistsError("目录已存在且非空，拒绝覆盖：%s" % root)
-    (root / "content").mkdir(parents=True, exist_ok=True)
-    (root / "static").mkdir(parents=True, exist_ok=True)
-    (root / "data").mkdir(parents=True, exist_ok=True)
-
-    (root / "data" / "links.json").write_text(
-        '{\n  "items": [\n    {"name": "示例", "url": "https://example.com"}\n  ]\n}\n',
-        encoding="utf-8",
-    )
-
-    (root / "mssg.toml").write_text(
-        """\
-[site]
-title = "星尘科技"
-description = "星尘科技专注于云端协作工具，帮小团队把想法快速变成产品。"
-base_url = ""
-theme = "%s"  # 内置主题：company（公司站）/ minimal（极简风）；templates/ 下放同名文件可覆盖
-
-# 导航菜单（按 weight 排序）
-[[site.menu]]
-name = "首页"
-url = "/"
-weight = 1
-[[site.menu]]
-name = "产品"
-url = "/products.html"
-weight = 2
-[[site.menu]]
-name = "新闻"
-url = "/#news"
-weight = 3
-[[site.menu]]
-name = "关于"
-url = "/about.html"
-weight = 4
-[[site.menu]]
-name = "联系"
-url = "/contact.html"
-weight = 5
-[[site.menu]]
-name = "搜索"
-url = "/search.html"
-weight = 6
-
-# 首页 hero 区
-[site.hero]
-title = "把想法变成产品"
-subtitle = "开箱即用的协作工具，让小团队也能有大公司的效率。"
-cta_text = "了解产品"
-cta_url = "/products.html"
-cta2_text = "联系我们"
-cta2_url = "/about.html#contact"
-
-# 首页特性卡片（增删改后重新 build 即可）
-[[site.features]]
-title = "开箱即用"
-text = "一行命令建站，一次构建上线，不写一行后端代码。"
-[[site.features]]
-title = "极速构建"
-text = "增量构建只重建改动过的页面，改完即刻预览。"
-[[site.features]]
-title = "SEO 友好"
-text = "语义化 HTML、sitemap、RSS、Open Graph 标签开箱即备。"
-
-# 联系方式（页脚与关于页共用）
-[site.contact]
-email = "hi@example.com"
-phone = "400-000-0000"
-
-[site.footer]
-text = "© 2026 星尘科技"
-
-# 联系表单：填入 Formspree / Getform 等第三方服务的 endpoint，
-# 联系页（/contact.html）的表单即可用；留空则显示配置提示。
-[site.form]
-endpoint = ""
-# endpoint = "https://formspree.io/f/xxxxxx"
-
-# 多语言：取消注释启用英文版。about.en.md 这类文件会输出到 en/ 目录，
-# [site.en] 覆盖英文版的站点文案（标题/菜单/hero 等）。
-# [i18n]
-# default = "zh"
-# langs = ["zh", "en"]
-#
-# [site.en]
-# title = "Stardust"
-# description = "Stardust builds collaboration tools for small teams."
-
-[build]
-# per_page = 5  # 首页/标签页每页篇数；0 或不填则不分页
-# 分页文件：首页 page/2.html…，标签页 tags/<tag>/2.html…
-# image_max_width = 1600  # static/ 里的图片超过此宽度则缩放；0 表示不缩放
-# image_quality = 82      # JPEG 压缩质量（1-95）
-# search = false          # 设为 false 关闭站内搜索（search.json + /search.html）
-""" % theme,
-        encoding="utf-8",
-    )
-
-    (root / "content" / "about.md").write_text(
-        """\
----
-title: 关于我们
-date: 2026-10-02
----
-
-# 关于我们
-
-星尘科技是一家专注于云端协作工具的公司，目标是让小团队也能有大公司的效率。
-
-## 联系方式 {#contact}
-
-- 邮箱：hi@example.com
-- 电话：400-000-0000
-
-欢迎随时联系我们。
-""",
-        encoding="utf-8",
-    )
-    (root / "content" / "products.md").write_text(
-        """\
----
-title: 产品介绍
-date: 2026-10-02
----
-
-# 产品介绍
-
-## 星尘协作
-
-为小团队打造的一站式协作平台：
-
-- 任务看板，开箱即用
-- 文档与知识库二合一
-- 秒级构建的静态站点发布
-
-```python
-print("你好，星尘")
-```
-
-> 纸上得来终觉浅，绝知此事要躬行。
-""",
-        encoding="utf-8",
-    )
-    (root / "content" / "hello.md").write_text(
-        """\
----
-title: 你好，世界
-date: 2026-10-02
-tags: [mssg, 示例]
----
-
-# 你好，世界
-
-这是用 **mssg** 生成的第一篇文章。
-
-- Markdown（含表格、脚注、代码高亮）
-- Jinja2 模板（继承、循环、过滤器）
-- YAML front matter
-""",
-        encoding="utf-8",
-    )
-    (root / "content" / "contact.md").write_text(
-        """\
----
-title: 联系我们
-date: 2026-10-02
-template: contact.html
----
-
-欢迎通过下表给我们留言，我们会尽快回复。
-""",
-        encoding="utf-8",
-    )
-    (root / "content" / "draft.md").write_text(
-        """\
----
-title: 草稿示例
-date: 2026-10-03
-draft: true
----
-
-# 草稿示例
-
-这篇是草稿，`mssg build` 默认跳过，
-`mssg build --drafts` 才会构建它。
-""",
-        encoding="utf-8",
-    )
-    return root

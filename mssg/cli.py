@@ -164,7 +164,12 @@ def _cmd_admin(args) -> int:
     from .admin import run as admin_run
 
     try:
-        admin_run(".", port=args.port)
+        admin_run(
+            ".",
+            port=args.port,
+            token=getattr(args, "token", "") or None,
+            no_auth=getattr(args, "no_auth", False),
+        )
     except OSError as e:
         print("错误：无法启动管理后台：%s" % e)
         return 1
@@ -266,6 +271,10 @@ def main() -> int:
         "-c", "--config", default="mssg.toml", help="配置文件路径（默认 mssg.toml）"
     )
     p_admin.add_argument("--port", type=int, default=8902, help="监听端口（默认 8902）")
+    p_admin.add_argument("--token", default="", help="固定鉴权 token（默认每次随机生成）")
+    p_admin.add_argument(
+        "--no-auth", action="store_true", help="关闭 token 鉴权（仅自己电脑上用）"
+    )
     p_admin.set_defaults(func=_cmd_admin)
 
     args = parser.parse_args()

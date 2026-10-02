@@ -1,5 +1,39 @@
 # 更新日志
 
+## 0.8.0（2026-10-02）
+
+还清六笔技术债（182 测试全绿）：
+
+### 重构
+
+- 拆 `site.py`（1410 行 → 约 1150 行）：`new_site` 移入 `mssg/scaffold.py`，
+  图片优化移入 `mssg/images.py`，主题发现移入 `mssg/themes.py`；
+  `site.py` 保留重导出，`from mssg.site import Site, new_site` 不变
+
+### 新功能
+
+- 插件钩子：站点 `plugins/` 下每个 `*.py` 自动加载，`HOOKS = {...}`
+  或 `register(hooks)` 注册；事件 `build_started` / `page_read` /
+  `page_html` / `build_finished`（插件加载失败中断构建并报错，
+  渲染在线程池中进行故钩子须线程安全）
+- Markdown 可配置：`mssg.toml` 里 `[markdown] extensions` 增删扩展，
+  `[markdown.extension_configs.*]` 透传给 Python-Markdown
+- admin token 鉴权：默认每次启动生成一次性 token（打印在 URL 里，
+  首次访问后种 cookie）；`--token` 指定固定值，`--no-auth` 关闭
+  （仍只监听 127.0.0.1）
+- 图片缓存：源文件指纹 + `image_max_width`/`image_quality` 不变时跳过
+  重复优化，改配置才重新处理
+
+### 性能
+
+- 页面元数据读取与 Markdown 解析分离：无改动时跳过全部解析
+- Markdown 实例按配置缓存（线程本地，避免每页重建）
+- Jinja2 Environment 按模板内容缓存，不重复编译
+- `search.json` 增量更新：只重建新增/改动页面的条目
+- 列表页/feed/sitemap 等无改动时连模板都不渲染
+- 1000 页站点实测：冷构建 19.6s → 4.8s，热重建 4.5s → 0.5s，
+  单页改动 4.5s → 0.6s（`python tools/bench.py --pages 1000` 可复测）
+
 ## 0.7.0（2026-10-02）
 
 主题系统 + 真正的 canonical（166 测试全绿）：

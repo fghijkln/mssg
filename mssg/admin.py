@@ -1,7 +1,8 @@
 """mssg admin：本地内容管理后台。
 
 只监听 127.0.0.1（本机回环），不对外暴露；提供文章的列表/新建/编辑/删除
-与一键重建。无登录鉴权——不要把它暴露到公网。
+与一键重建。默认需要一次性 token（启动时打印在 URL 里）才能访问；
+不要把它暴露到公网。
 """
 from __future__ import annotations
 
@@ -205,15 +206,40 @@ class AdminApp:
 
 class _Handler(BaseHTTPRequestHandler):
     app: AdminApp = None  # type: ignore
+    token: str | None = None  # 为 None 时不鉴权
 
     def log_message(self, *a):
         pass
 
-    def _send(self, html_text: str, code=200):
+    def _authorized(self) -> bool:
+        """token 鉴权：query ?token= 或 Cookie mssg_token。"""
+        if not self.token:
+            return True
+        u = urlparse(self.path)
+        q = parse_qs(u.query)
+        if (q.get("token") or [""])[0] == self.token:
+            return True
+        cookie = self.headers.get("Cookie", "")
+        for part in cookie.split(";"):
+            if part.strip() == "mssg_token=" + self.token:
+                return True
+        return False
+
+    def _deny(self):
+        self._send(
+            "<h1>403</h1><p>需要 token：用启动时打印的完整 URL 访问。</p>", 403
+        )
+
+    def _send(self, html_text: str, code=200, set_cookie: bool = False):
         data = html_text.encode("utf-8")
         self.send_response(code)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(data)))
+        if set_cookie and self.token:
+            self.send_header(
+                "Set-Cookie",
+                "mssg_token=%s; Path=/; HttpOnly; SameSite=Lax" % self.token,
+            )
         self.end_headers()
         self.wfile.write(data)
 
@@ -228,10 +254,14 @@ class _Handler(BaseHTTPRequestHandler):
         return parse_qs(raw, keep_blank_values=True)
 
     def do_GET(self):
+        if not self._authorized():
+            self._deny()
+            return
         u = urlparse(self.path)
         try:
             if u.path == "/":
-                self._send(self.app.render_index())
+                # query 带 token 进来时种下 cookie，后续免带
+                self._send(self.app.render_index(), set_cookie=True)
             elif u.path == "/new":
                 inner = self.app._form(rel="post/untitled.md").replace(
                     '<input type="hidden" name="rel" value="post/untitled.md">',
@@ -259,6 +289,9 @@ class _Handler(BaseHTTPRequestHandler):
             self._send(self.app.render_index("出错：%s" % e, ok=False))
 
     def do_POST(self):
+        if not self._authorized():
+            self._deny()
+            return
         u = urlparse(self.path)
         try:
             form = self._read_form()
@@ -282,11 +315,27 @@ class _Handler(BaseHTTPRequestHandler):
             self._send(self.app.render_index("出错：%s" % e, ok=False))
 
 
-def run(root: str | Path, port: int = 8902) -> None:
-    """启动本地管理后台（仅 127.0.0.1）。"""
+def run(root: str | Path, port: int = 8902, token: str | None = None,
+        no_auth: bool = False) -> None:
+    """启动本地管理后台（仅 127.0.0.1）。
+
+    默认生成一次性 token 并打印在 URL 里；--token 可指定固定 token，
+    --no-auth 关闭鉴权（仅自己电脑上用）。
+    """
+    import secrets
+
+    if no_auth:
+        use_token = None
+        print("警告：鉴权已关闭，仅在自己电脑上使用！")
+    else:
+        use_token = token or secrets.token_urlsafe(16)
     _Handler.app = AdminApp(root)
+    _Handler.token = use_token
     srv = ThreadingHTTPServer(("127.0.0.1", port), _Handler)
-    print("mssg admin 运行在 http://127.0.0.1:%d （仅本机可访问，Ctrl+C 退出）" % port)
+    url = "http://127.0.0.1:%d/" % port
+    if use_token:
+        url += "?token=" + use_token
+    print("mssg admin 运行在 %s （仅本机可访问，Ctrl+C 退出）" % url)
     try:
         srv.serve_forever()
     except KeyboardInterrupt:
