@@ -99,7 +99,11 @@ def _watch_and_rebuild(site: Site, args, stop_event: threading.Event) -> None:
 
 
 def _cmd_clean(args) -> int:
-    site = Site(".", config=args.config)
+    try:
+        site = Site(".", config=args.config)
+    except Exception as e:
+        print("错误：%s" % e)
+        return 1
     out = Path(site.cfg["build"]["output_dir"])
     try:
         resolved = out.resolve()
