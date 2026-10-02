@@ -104,3 +104,18 @@ a:hover{text-decoration:underline}
   .site-header .nav{gap:12px}
   .site-header nav a{padding:8px 8px;font-size:14px}
 }
+
+/* 滚动显现（配合 reveal.js，data-reveal="up|down|left|right|zoom"） */
+.rv{opacity:0;transition:opacity .7s ease,transform .7s cubic-bezier(.22,.61,.36,1)}
+.rv[data-reveal="up"]{transform:translateY(36px)}
+.rv[data-reveal="down"]{transform:translateY(-36px)}
+.rv[data-reveal="left"]{transform:translateX(-48px)}
+.rv[data-reveal="right"]{transform:translateX(48px)}
+.rv[data-reveal="zoom"]{transform:scale(.92)}
+.rv.in{opacity:1;transform:none}
+.rv[data-delay="1"]{transition-delay:.08s}
+.rv[data-delay="2"]{transition-delay:.16s}
+.rv[data-delay="3"]{transition-delay:.24s}
+@media (prefers-reduced-motion:reduce){
+  .rv{opacity:1 !important;transform:none !important;transition:none}
+}
