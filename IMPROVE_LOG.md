@@ -340,3 +340,23 @@
   README 测试章节链接到它。
 - 测试 78/78 全绿。提交并推送，push 前测试全绿。
 
+## 迭代 33 — 增量构建审查：删除页面的残留（约 20:40）
+
+- 审查删除场景发现**真 bug（两层）**：
+  1. 删除 content/gone.md 后，public/gone.html 永久残留；
+  2. 删除页面不触发 rebuilt_any，首页/标签页/feed/sitemap 里还留着死链。
+- 修：清理逻辑提前到 pages 循环之后、渲染索引之前 —— 删输出文件
+  （含路径穿越保护）+ 删缓存键 + 置 rebuilt_any=True。
+  途中手误把 sitemap 测试的 def 行吃了，已恢复（教训：edit 后要 grep 确认）。
+- 新增测试 test_deleted_page_cleanup。测试 79/79 全绿；
+  fuzz 种子 999888，2000 用例 0 问题。
+- 提交并推送，push 前测试全绿。
+
+## 迭代 34 — fuzzer 升级为语法制导（约 20:55）
+
+- fuzz_local.py 新增语法制导生成器：模板（嵌套 for/if/elif/block/include、
+  畸形碎片、include 自循环）与 Markdown（嵌套列表/引用/表格/围栏/分隔线），
+  与字符汤交替运行；模板用无 loader 与有 loader 两种模式渲染。
+- 5 个新种子 × 2000 用例 = 10000 用例，0 崩溃 0 挂起 0 非预期异常。
+- fuzzer 本身在 .gitignore 中，不入库。测试 79/79 全绿（无代码改动，不提交）。
+
