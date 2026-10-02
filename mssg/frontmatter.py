@@ -31,7 +31,14 @@ def split(text: str) -> tuple[dict, str]:
             break
     if end is None:
         return {}, text
-    meta = _parse("\n".join(lines[1:end]))
+    raw_block = "\n".join(lines[1:end])
+    meta = _parse(raw_block)
+    if not meta and any(
+        ln.strip() and not ln.strip().startswith("#")
+        for ln in raw_block.split("\n")
+    ):
+        # 块里没有任何有效键：这不是 front matter，别吞掉正文
+        return {}, text
     return meta, "\n".join(lines[end + 1:])
 
 

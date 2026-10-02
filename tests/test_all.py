@@ -348,6 +348,17 @@ class TestFrontMatter(unittest.TestCase):
         meta, _ = split('---\ntags: ["a,b", c]\n---\n')
         self.assertEqual(meta["tags"], ["a,b", "c"])
 
+    def test_not_front_matter_without_keys(self):
+        # --- 块里没有任何有效键：不是 front matter，内容不能被吞掉
+        meta, body = split("---\njust some text\n---\n\n正文\n")
+        self.assertEqual(meta, {})
+        self.assertIn("just some text", body)
+        self.assertIn("正文", body)
+        # 纯空的 --- 块仍是合法的空 front matter
+        meta, body = split("---\n---\n正文\n")
+        self.assertEqual(meta, {})
+        self.assertEqual(body, "正文\n")
+
     def test_multiline_list(self):
         meta, _ = split("---\ntags:\n  - x\n  - y\n---\n")
         self.assertEqual(meta["tags"], ["x", "y"])
