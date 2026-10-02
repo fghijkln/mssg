@@ -363,6 +363,17 @@ class TestFrontMatter(unittest.TestCase):
         # 引号内的 # 不是注释
         meta, _ = split('---\ntitle: "a # b"\n---\n')
         self.assertEqual(meta["title"], "a # b")
+        # # 在值开头也是注释
+        meta, _ = split("---\nkey: # 纯注释\n---\n")
+        self.assertEqual(meta["key"], "")
+        # # 前无空白则不是注释
+        meta, _ = split("---\nkey: a#b\n---\n")
+        self.assertEqual(meta["key"], "a#b")
+
+    def test_list_comment_only_item_dropped(self):
+        # 整项都是注释的行内列表项应被丢弃
+        meta, _ = split("---\ntags: [#x, a]\n---\n")
+        self.assertEqual(meta["tags"], ["a"])
 
     def test_quoted_comma_list(self):
         meta, _ = split('---\ntags: ["a,b", c]\n---\n')

@@ -75,7 +75,10 @@ def _parse(src: str) -> dict:
 
 
 def _strip_comment(val: str) -> str:
-    """去掉引号外的行尾注释（` # ...`），引号内的 # 保留。"""
+    """去掉引号外的行尾注释（`# ...`），引号内的 # 保留。
+
+    # 在值开头或空白之后出现时视为注释开始（`a#b` 里的 # 不是注释）。
+    """
     in_single = in_double = False
     for i, ch in enumerate(val):
         if ch == "'" and not in_double:
@@ -86,8 +89,7 @@ def _strip_comment(val: str) -> str:
             ch == "#"
             and not in_single
             and not in_double
-            and i > 0
-            and val[i - 1] in " \t"
+            and (i == 0 or val[i - 1] in " \t")
         ):
             return val[:i].rstrip()
     return val
@@ -111,11 +113,12 @@ def _split_list(inner: str) -> list:
         else:
             buf.append(ch)
     items.append("".join(buf))
-    return [
-        _coerce(_strip_comment(item.strip()))
-        for item in items
-        if item.strip()
-    ]
+    result = []
+    for item in items:
+        stripped = _strip_comment(item.strip())
+        if stripped:
+            result.append(_coerce(stripped))
+    return result
 
 
 def _coerce(value: str):
