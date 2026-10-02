@@ -331,3 +331,12 @@
 - 清理仓库根目录测试残留的 public/（gitignored，不入库）。
 - 测试 78/78 全绿。提交并推送，push 前测试全绿。
 
+## 迭代 32 — 打包验证 + CHANGELOG（约 20:25）
+
+- 打包验证（只构建不安装，不碰依赖铁律）：pyproject.toml 有效；
+  `pip wheel --no-deps` 产出 mssg-0.2.0-py3-none-any.whl；
+  解包验证 6 个模块齐全、`--version` 输出 mssg 0.2.0。
+- 新增 CHANGELOG.md：0.2.0 的新功能 / 修复清单 / 测试情况；
+  README 测试章节链接到它。
+- 测试 78/78 全绿。提交并推送，push 前测试全绿。
+

@@ -214,6 +214,19 @@ class Site:
                 cache[key] = digest
                 rebuilt_any = True
 
+        # 清理已删除页面的残留：输出文件 + 缓存键；有删除则视为有更新，
+        # 必须在渲染索引/标签页/feed 之前做，让它们用最新的 pages 重建
+        for key in [k for k in cache if k.startswith("page:") and k[5:] not in rels]:
+            del cache[key]
+            stale_out = output_dir / (key[5:-3] + ".html")
+            if stale_out.is_file():
+                try:
+                    stale_out.resolve().relative_to(output_dir.resolve())
+                except ValueError:
+                    continue  # 路径穿越保护
+                stale_out.unlink()
+            rebuilt_any = True
+
         pages.sort(key=lambda p: p["date"], reverse=True)
         # content/index.md 存在时，它就是首页，不再用自动索引覆盖
         has_home = any(p["url"] == "index.html" for p in pages)
@@ -276,10 +289,6 @@ class Site:
                     stale_path.unlink()
             shutil.copytree(static_dir, output_dir, dirs_exist_ok=True)
             cache["static_files"] = sorted(new_static)
-
-        # 清理已删除页面的残留缓存键
-        for key in [k for k in cache if k.startswith("page:") and k[5:] not in rels]:
-            del cache[key]
 
         cache["templates"] = tpl_digest
         cache["config"] = config_digest

@@ -435,6 +435,27 @@ class TestBuild(unittest.TestCase):
             self.assertIn("我的首页", index)
             self.assertNotIn("hello.html", index)
 
+    def test_deleted_page_cleanup(self):
+        # 删除源 Markdown 后：输出 HTML 被清理，索引不再收录，且触发重建
+        with tempfile.TemporaryDirectory() as tmp:
+            root = new_site(os.path.join(tmp, "demo"))
+            (root / "content" / "gone.md").write_text(
+                "---\ntitle: 消失\ndate: 2026-01-01\n---\n\nbye\n",
+                encoding="utf-8",
+            )
+            Site(root).build()
+            self.assertTrue((root / "public" / "gone.html").exists())
+            index = (root / "public" / "index.html").read_text(encoding="utf-8")
+            self.assertIn("gone.html", index)
+            (root / "content" / "gone.md").unlink()
+            result = Site(root).build()
+            self.assertTrue(result["rebuilt"])
+            self.assertFalse((root / "public" / "gone.html").exists())
+            index = (root / "public" / "index.html").read_text(encoding="utf-8")
+            self.assertNotIn("gone.html", index)
+            sm = (root / "public" / "sitemap.xml").read_text(encoding="utf-8")
+            self.assertNotIn("gone.html", sm)
+
     def test_sitemap_no_duplicate_index(self):
         # content/index.md 存在时，sitemap 里 index.html 只出现一次
         with tempfile.TemporaryDirectory() as tmp:
