@@ -138,7 +138,10 @@ class Site:
                 rels.add(rel)
                 url = rel[:-3] + ".html"
                 digest = _sha1_file(md_path)
-                page = self._read_page(md_path, rel, url)
+                try:
+                    page = self._read_page(md_path, rel, url)
+                except Exception as e:
+                    raise ValueError("解析页面失败 %s：%s" % (rel, e))
                 out_path = output_dir / url
                 key = "page:" + rel
                 if _is_draft(page.get("draft")) and not include_drafts:
@@ -157,7 +160,10 @@ class Site:
                     and out_path.exists()
                 ):
                     continue
-                self._render_page(page, templates, out_path)
+                try:
+                    self._render_page(page, templates, out_path)
+                except Exception as e:
+                    raise ValueError("渲染页面失败 %s：%s" % (rel, e))
                 cache[key] = digest
                 rebuilt_any = True
 

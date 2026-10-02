@@ -61,7 +61,10 @@ def parse(src: str) -> str:
     """把 Markdown 子集源码转成 HTML 片段。"""
     src = src.replace("\r\n", "\n").replace("\r", "\n")
     lines = src.replace("\t", "    ").split("\n")
-    blocks, _ = _parse_blocks(lines, 0)
+    try:
+        blocks, _ = _parse_blocks(lines, 0)
+    except RecursionError:
+        raise ValueError("Markdown 嵌套过深（超过 Python 递归限制）")
     return "\n".join(blocks)
 
 

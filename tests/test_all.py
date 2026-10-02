@@ -87,6 +87,12 @@ class TestMarkdown(unittest.TestCase):
         html = markdown.parse("`<b>`")
         self.assertIn("<code>&lt;b&gt;</code>", html)
 
+    def test_deep_nesting_clear_error(self):
+        # 病态嵌套：给出明确错误而非裸 RecursionError
+        src = "".join("> " * i + "x\n" for i in range(1200))
+        with self.assertRaises(ValueError):
+            markdown.parse(src)
+
 
 class TestTemplate(unittest.TestCase):
     def test_var(self):
@@ -429,6 +435,17 @@ class TestBuild(unittest.TestCase):
             text = sm.read_text(encoding="utf-8")
             self.assertIn("hello.html", text)
             self.assertIn("<lastmod>2026-10-02</lastmod>", text)
+
+    def test_build_reports_bad_page(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = new_site(os.path.join(tmp, "demo"))
+            (root / "content" / "bad.md").write_text(
+                "".join("> " * i + "x\n" for i in range(1200)),
+                encoding="utf-8",
+            )
+            with self.assertRaises(ValueError) as cm:
+                Site(root).build()
+            self.assertIn("bad.md", str(cm.exception))
 
 
 if __name__ == "__main__":
