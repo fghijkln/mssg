@@ -506,3 +506,15 @@
   测试 88/88 全绿；fuzz 种子 456456，1500 用例 0 问题。
 - 提交并推送，push 前测试全绿。
 
+## 迭代 52 事故记录（约 15:25）
+
+- **事故**：一次无意义的 edit（old_text/new_text 仅差换行）吃掉了
+  `def test_...` 行尾的换行，导致 tests/test_all.py 语法错误；
+  更糟的是提交命令用了 `| grep -E` 判断，grep 匹配到 "FAILED" 照样返回 0，
+  把红码提交推送到了 master（fd3cab0，存活约 2 分钟）。
+- **修复**：补回换行，确认 88/88 全绿后立即推送修复提交 b282f94。
+- **教训（铁律补丁）**：
+  1. 禁止无意义的 edit（新旧文本实质相同的一律不做）；
+  2. push 前必须检查 unittest 进程退出码本身，禁止用 `| grep` 做判断
+     （正确姿势：`python3 -m unittest discover -s tests > /tmp/o 2>&1; echo exit=$?`）。
+
