@@ -560,8 +560,24 @@ class TestBuild(unittest.TestCase):
             self.assertIn('href="/tags/t.html"', html)  # 上一页回到第一页
             self.assertIn("2 / 2", html)
 
-    def test_pagination_per_page_change_cleans(self):
+    def test_content_index_added_later_cleans_pagination(self):
+        # 先有分页，后加 content/index.md：分页残留清理，但自定义首页保留
         with tempfile.TemporaryDirectory() as tmp:
+            root = self._make_paged_site(tmp, n=4, per_page=2)
+            Site(root).build()
+            self.assertTrue((root / "public" / "page" / "2.html").exists())
+            (root / "content" / "index.md").write_text(
+                "---\ntitle: 首页\n---\n\n# 首页\n", encoding="utf-8"
+            )
+            Site(root).build()
+            index = (root / "public" / "index.html").read_text(encoding="utf-8")
+            self.assertIn("首页", index)
+            self.assertFalse((root / "public" / "page" / "2.html").exists())
+            sm = (root / "public" / "sitemap.xml").read_text(encoding="utf-8")
+            self.assertNotIn("/page/2.html", sm)
+            self.assertEqual(sm.count("<loc>/index.html</loc>"), 1)
+
+    def test_pagination_per_page_change_cleans(self):        with tempfile.TemporaryDirectory() as tmp:
             root = self._make_paged_site(tmp, n=5, per_page=2)
             Site(root).build()
             self.assertTrue((root / "public" / "page" / "3.html").exists())

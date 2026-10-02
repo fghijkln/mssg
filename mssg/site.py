@@ -240,8 +240,13 @@ class Site:
             self._clean_stale(output_dir, cache.get("index_files", []), index_made)
             cache["index_files"] = sorted(index_made)
         elif cache.get("index_files"):
-            # 之前生成的分页文件现在不需要了（有了 content/index.md）
-            self._clean_stale(output_dir, cache.pop("index_files"), set())
+            # 之前生成的分页文件现在不需要了（有了 content/index.md）；
+            # index.html 现在由 content/index.md 生成，不在此删除
+            self._clean_stale(
+                output_dir,
+                [f for f in cache.pop("index_files") if f != "index.html"],
+                set(),
+            )
 
         tag_made: set = set()
         if b.get("tag_pages", True):
