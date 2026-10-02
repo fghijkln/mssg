@@ -129,6 +129,8 @@ page/total_pages/multiple/has_prev/has_next/prev_url/next_url；
 python -m unittest discover -s tests
 ```
 
+版本历史见 [CHANGELOG.md](CHANGELOG.md)。
+
 ## 路线图
 
 已完成：

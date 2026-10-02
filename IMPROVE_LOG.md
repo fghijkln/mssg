@@ -323,3 +323,11 @@
   test_extends_three_levels、test_include_inside_block。
 - 测试 78/78 全绿。提交并推送，push 前测试全绿。
 
+## 迭代 31 — 打包配置审查（约 20:10）
+
+- 审查 pyproject.toml：版本号仍是 0.1.0，但自 v0.1.0 后已新增
+  模板继承/include/标签页/归档/草稿/feed/sitemap/分页/文件监听 ——
+  升至 0.2.0（`mssg/__init__.py` 与 pyproject.toml 同步，`--version` 验证）。
+- 清理仓库根目录测试残留的 public/（gitignored，不入库）。
+- 测试 78/78 全绿。提交并推送，push 前测试全绿。
+
