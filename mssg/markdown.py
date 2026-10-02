@@ -48,6 +48,7 @@ def _inline(text: str) -> str:
 
 def parse(src: str) -> str:
     """把 Markdown 子集源码转成 HTML 片段。"""
+    src = src.replace("\r\n", "\n").replace("\r", "\n")
     lines = src.replace("\t", "    ").split("\n")
     blocks, _ = _parse_blocks(lines, 0)
     return "\n".join(blocks)
@@ -129,6 +130,9 @@ def _parse_blocks(lines: list[str], i: int) -> tuple[list[str], int]:
         i += 1
 
     flush_para()
+    if in_fence:
+        # 围栏代码块未闭合：按闭合处理，避免内容静默丢失
+        out.append("<pre><code>%s</code></pre>" % html.escape("\n".join(fence)))
     return out, i
 
 

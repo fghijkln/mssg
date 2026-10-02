@@ -20,6 +20,7 @@ _KEYVAL = re.compile(r"^([A-Za-z0-9_-]+)\s*:\s*(.*)$")
 
 def split(text: str) -> tuple[dict, str]:
     """分离 front matter 与正文，返回 (meta, body)。"""
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
     lines = text.split("\n")
     if not lines or lines[0].strip() != "---":
         return {}, text

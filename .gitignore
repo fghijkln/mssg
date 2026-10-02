@@ -5,3 +5,4 @@ dist/
 build/
 public/
 .mssg/
+fuzz_local.py

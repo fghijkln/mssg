@@ -58,6 +58,21 @@ class TestMarkdown(unittest.TestCase):
     def test_html_escaped(self):
         self.assertIn("&lt;script&gt;", markdown.parse("<script>"))
 
+    def test_unclosed_fence_kept(self):
+        # 围栏代码块未闭合：内容不应静默丢失
+        html = markdown.parse("```\ncode here")
+        self.assertIn("<pre><code>", html)
+        self.assertIn("code here", html)
+
+    def test_crlf(self):
+        html = markdown.parse("# 标题\r\n\r\n正文\r\n")
+        self.assertIn("<h1>标题</h1>", html)
+        self.assertNotIn("\r", html)
+
+    def test_empty(self):
+        self.assertEqual(markdown.parse(""), "")
+        self.assertEqual(markdown.parse("\n\n"), "")
+
 
 class TestTemplate(unittest.TestCase):
     def test_var(self):
@@ -113,6 +128,11 @@ class TestFrontMatter(unittest.TestCase):
         meta, body = split("纯正文")
         self.assertEqual(meta, {})
         self.assertEqual(body, "纯正文")
+
+    def test_crlf(self):
+        meta, body = split("---\r\ntitle: T\r\n---\r\n正文\r\n")
+        self.assertEqual(meta["title"], "T")
+        self.assertNotIn("\r", body)
 
 
 class TestBuild(unittest.TestCase):
