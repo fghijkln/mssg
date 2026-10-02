@@ -1,0 +1,82 @@
+# mssg
+
+极简零依赖静态站点生成器。Markdown 解析器、模板引擎、front matter 解析全部自研，只用 Python 标准库，不装任何第三方包。
+
+## 安装
+
+需要 Python 3.11+（用了标准库 `tomllib`）。
+
+```bash
+pip install .
+# 或者直接用源码
+python -m mssg.cli new my-site
+```
+
+## 快速开始
+
+```bash
+mssg new my-site        # 生成站点脚手架
+cd my-site
+mssg build              # 构建，输出到 public/
+mssg serve              # 构建 + 本地预览 http://127.0.0.1:8000/
+```
+
+站点结构：
+
+```
+my-site/
+  mssg.toml        # 配置（站点标题、目录等）
+  content/         # Markdown 文章（支持 --- front matter ---）
+  templates/       # page.html（文章模板）、index.html（首页模板）
+  static/          # 原样拷贝到输出目录
+  public/          # 构建产物
+```
+
+front matter 示例：
+
+```markdown
+---
+title: 你好，世界
+date: 2026-10-02
+---
+
+# 你好，世界
+
+正文……
+```
+
+## Markdown 支持（自研子集）
+
+ATX 标题、段落、`**粗体**`、`*斜体*`、`` `行内代码` ``、`[链接](url)`、
+`![图片](url)`、无序/有序列表（一层嵌套）、`>` 引用、```` ``` ```` 围栏代码块、
+`---` 分隔线、简单表格。
+
+## 模板语法（自研）
+
+- `{{ name }}` / `{{ page.title }}` —— 变量，支持点号取值，缺失则为空
+- `{% for p in pages %} ... {% endfor %}` —— 循环，体内可用 `loop.index` / `loop.index0`
+- `{% if x %} ... {% elif y %} ... {% else %} ... {% endif %}` —— 条件，
+  支持 `not x`、`a == b`、`a != b`
+
+模板可用变量：`site`（配置）、`page`（当前页面：title/date/content/url + front matter
+全部字段）、`pages`（首页：全部页面，按日期倒序）。
+
+## 构建特性
+
+- 增量构建：内容与模板的 SHA1 无变化时跳过，只重建改动过的页面
+- 模板改动自动触发全量重建
+- `static/` 原样拷贝
+
+## 测试
+
+```bash
+python -m unittest discover -s tests
+```
+
+## 路线图
+
+- 模板继承（`{% extends %}` / `{% block %}`）
+- 标签页与归档页自动生成
+- 草稿（`draft: true`）过滤
+- RSS/Atom 输出
+- `serve` 的文件监听自动重建
