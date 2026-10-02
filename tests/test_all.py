@@ -113,6 +113,29 @@ class TestTemplate(unittest.TestCase):
         tpl = '{% if x == "go" %}GO{% endif %}{% if not y %}NO{% endif %}'
         self.assertEqual(template.render(tpl, {"x": "go", "y": 0}), "GONO")
 
+    def test_comment(self):
+        self.assertEqual(template.render("a{# 这是注释 #}b", {}), "ab")
+        self.assertEqual(template.render("{# 整行注释 #}", {}), "")
+        # 未闭合的注释标记按普通文本保留，不崩溃
+        self.assertEqual(template.render("a{# b", {}), "a{# b")
+
+    def test_nested_for(self):
+        out = template.render(
+            "{% for i in xs %}{% for j in ys %}{{i}}{{j}};{% endfor %}{% endfor %}",
+            {"xs": [1, 2], "ys": ["a", "b"]},
+        )
+        self.assertEqual(out, "1a;1b;2a;2b;")
+
+    def test_deep_nesting_clear_error(self):
+        # 病态嵌套：给出明确错误而非裸 RecursionError
+        deep = "{% if a %}" * 5000 + "X" + "{% endif %}" * 5000
+        with self.assertRaises(ValueError):
+            template.render(deep, {"a": 1})
+
+    def test_unclosed_var_kept(self):
+        # 未闭合的 {{ 按普通文本保留
+        self.assertEqual(template.render("a {{ b", {}), "a {{ b")
+
 
 class TestFrontMatter(unittest.TestCase):
     def test_split(self):

@@ -7,20 +7,24 @@
 
 if 条件支持：变量真值、not x、a == b、a != b（b 可为引号字符串、数字或变量）。
 for 循环体内可用 loop.index（从 1 计）与 loop.index0（从 0 计）。
+{# ... #} 为注释，原样丢弃。
 """
 
 from __future__ import annotations
 
 import re
 
-_TOKEN = re.compile(r"({{.*?}}|{%.*?%})", re.S)
+_TOKEN = re.compile(r"({{.*?}}|{%.*?%}|{#.*?#})", re.S)
 _FOR = re.compile(r"for\s+(\w+)\s+in\s+([\w.]+)$")
 
 
 def render(template: str, ctx: dict) -> str:
-    tokens = _TOKEN.split(template)
-    nodes, _ = _parse(list(tokens), 0, ())
-    return "".join(node.render(ctx) for node in nodes)
+    try:
+        tokens = _TOKEN.split(template)
+        nodes, _ = _parse(list(tokens), 0, ())
+        return "".join(node.render(ctx) for node in nodes)
+    except RecursionError:
+        raise ValueError("模板嵌套过深（超过 Python 递归限制）")
 
 
 def _resolve(name: str, ctx: dict):
@@ -133,7 +137,9 @@ def _parse(tokens: list, pos: int, stops: tuple) -> tuple[list, int]:
     nodes: list = []
     while pos < len(tokens):
         tok = tokens[pos]
-        if tok.startswith("{{"):
+        if tok.startswith("{#"):
+            pos += 1  # 注释：丢弃
+        elif tok.startswith("{{"):
             nodes.append(_Var(tok[2:-2].strip()))
             pos += 1
         elif tok.startswith("{%"):
