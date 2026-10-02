@@ -2,11 +2,33 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import shutil
 import warnings
 from pathlib import Path
 
 IMG_SUFFIXES = (".jpg", ".jpeg", ".png", ".webp")
+
+
+def copy_file_writable(src: Path, dst: Path) -> None:
+    """拷贝文件到构建输出目录。
+
+    不用 shutil.copy2：它会把源文件的权限位（含只读）带到输出，
+    下次构建覆盖只读输出时就 PermissionError（手机上必现，
+    Chaquopy 解压的包文件就是只读的）。同时修复旧版本留下的
+    只读输出文件。
+    """
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    if dst.exists():
+        try:
+            os.chmod(dst, 0o644)
+        except OSError:
+            pass
+    shutil.copyfile(src, dst)
+    try:
+        os.chmod(dst, 0o644)
+    except OSError:
+        pass
 
 _PIL = None  # None=未检测；False=未安装；否则为 PIL.Image 模块
 _warned_no_pil = False
@@ -64,7 +86,7 @@ def copy_static_file(src: Path, dst: Path, max_w: int, quality: int) -> None:
             except Exception:
                 pass
     dst.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(src, dst)
+    copy_file_writable(src, dst)
 
 
 def _sha1_file(path: Path) -> str:

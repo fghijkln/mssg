@@ -8,7 +8,6 @@ import html as _html
 import json
 import os
 import re
-import shutil
 import time
 import tomllib
 import warnings
@@ -1081,7 +1080,7 @@ class Site:
                 sig = _sha1_file(sp)
                 if cache.get("imggen:" + out_rel) != sig or not dst.exists():
                     dst.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.copy2(sp, dst)
+                    _images.copy_file_writable(sp, dst)
                     cache["imggen:" + out_rel] = sig
             self._sc_genfiles.add(out_rel)
 

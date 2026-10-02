@@ -323,5 +323,44 @@ class TestNestedMenu(unittest.TestCase):
         )
 
 
+class TestWritableCopy(unittest.TestCase):
+    """只读源文件不应污染构建输出为只读（手机上第二次构建会 PermissionError）。"""
+
+    def test_copy_file_writable(self):
+        import os
+        import stat
+        from mssg.images import copy_file_writable
+
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            src = root / "a.css"
+            src.write_text("body{}")
+            src.chmod(0o444)
+            dst = root / "out" / "a.css"
+            copy_file_writable(src, dst)
+            self.assertTrue(dst.exists())
+            self.assertTrue(os.access(dst, os.W_OK))
+            self.assertTrue(bool(dst.stat().st_mode & stat.S_IWUSR))
+            # 第二次覆盖也不应报错
+            copy_file_writable(src, dst)
+            self.assertEqual(dst.read_text(), "body{}")
+
+    def test_copy_file_writable_heals_readonly_dst(self):
+        import os
+        from mssg.images import copy_file_writable
+
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            src = root / "a.css"
+            src.write_text("new")
+            dst = root / "out" / "a.css"
+            dst.parent.mkdir(parents=True)
+            dst.write_text("old")
+            dst.chmod(0o444)  # 模拟旧版本 copy2 留下的只读文件
+            copy_file_writable(src, dst)
+            self.assertEqual(dst.read_text(), "new")
+            self.assertTrue(os.access(dst, os.W_OK))
+
+
 if __name__ == "__main__":
     unittest.main()
