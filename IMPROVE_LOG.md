@@ -28,3 +28,13 @@
 - fuzz：种子 99，2000 用例，0 问题。
 - 提交并推送，push 前测试全绿。
 
+## 迭代 3 — frontmatter.py 审查（约 14:21）
+
+- 测试：33/33 全绿。
+- 审查发现 2 个健壮性问题：
+  1. `title: hi # 注释` 里 # 后内容未剥离（真 YAML 会剥离）→ 修：新增 `_strip_comment`，只剥离引号外的 ` #` 注释。
+  2. 行内列表 `tags: ["a,b", c]` 按逗号硬切，引号内逗号被误杀 → 修：新增 `_split_list`，引号内逗号不分割。
+- 新增测试 3 个：test_comment_stripped、test_quoted_comma_list、test_multiline_list。
+- fuzz：种子 1234，2000 用例，0 问题。
+- 提交并推送，push 前测试全绿。
+

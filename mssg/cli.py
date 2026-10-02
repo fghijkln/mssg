@@ -11,7 +11,11 @@ from .site import Site, new_site
 
 
 def _cmd_new(args) -> int:
-    root = new_site(args.name)
+    try:
+        root = new_site(args.name)
+    except FileExistsError as e:
+        print("错误：%s" % e)
+        return 1
     print("已创建站点：%s" % root)
     print("  cd %s && mssg build && mssg serve" % root)
     return 0

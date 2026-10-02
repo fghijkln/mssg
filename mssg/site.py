@@ -70,10 +70,12 @@ class Site:
         templates_changed = cache.get("templates") != tpl_digest
 
         pages = []
+        rels = set()
         rebuilt_any = force or templates_changed
         if content_dir.is_dir():
             for md_path in sorted(content_dir.rglob("*.md")):
                 rel = md_path.relative_to(content_dir).as_posix()
+                rels.add(rel)
                 url = rel[:-3] + ".html"
                 digest = _sha1_file(md_path)
                 page = self._read_page(md_path, rel, url)
@@ -92,11 +94,33 @@ class Site:
                 rebuilt_any = True
 
         pages.sort(key=lambda p: p["date"], reverse=True)
-        if rebuilt_any or not (output_dir / "index.html").exists():
+        # content/index.md 存在时，它就是首页，不再用自动索引覆盖
+        has_home = any(p["url"] == "index.html" for p in pages)
+        if not has_home and (
+            rebuilt_any or not (output_dir / "index.html").exists()
+        ):
             self._render_index(pages, templates, output_dir)
 
         if static_dir.is_dir():
+            new_static = set()
+            for sp in sorted(static_dir.rglob("*")):
+                if sp.is_file():
+                    new_static.add(sp.relative_to(static_dir).as_posix())
+            # 清理 static 里已删除的文件在输出目录中的残留
+            for stale in set(cache.get("static_files", [])) - new_static:
+                stale_path = output_dir / stale
+                if stale_path.is_file():
+                    try:
+                        stale_path.resolve().relative_to(output_dir.resolve())
+                    except ValueError:
+                        continue  # 路径穿越保护
+                    stale_path.unlink()
             shutil.copytree(static_dir, output_dir, dirs_exist_ok=True)
+            cache["static_files"] = sorted(new_static)
+
+        # 清理已删除页面的残留缓存键
+        for key in [k for k in cache if k.startswith("page:") and k[5:] not in rels]:
+            del cache[key]
 
         cache["templates"] = tpl_digest
         self._save_cache(cache_path, cache)
@@ -114,7 +138,7 @@ class Site:
         return templates
 
     def _read_page(self, md_path: Path, rel: str, url: str) -> dict:
-        text = md_path.read_text(encoding="utf-8")
+        text = md_path.read_text(encoding="utf-8-sig")
         meta, body = _split_fm(text)
         title = meta.get("title") or self._first_heading(body) or md_path.stem
         date = meta.get("date")
@@ -178,8 +202,10 @@ class Site:
 
 
 def new_site(name: str | Path) -> Path:
-    """生成站点脚手架，返回站点根目录。"""
+    """生成站点脚手架，返回站点根目录。目标为非空目录时拒绝覆盖。"""
     root = Path(name)
+    if root.exists() and any(root.iterdir()):
+        raise FileExistsError("目录已存在且非空，拒绝覆盖：%s" % root)
     (root / "content").mkdir(parents=True, exist_ok=True)
     (root / "templates").mkdir(parents=True, exist_ok=True)
     (root / "static").mkdir(parents=True, exist_ok=True)

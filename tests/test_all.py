@@ -197,6 +197,45 @@ class TestBuild(unittest.TestCase):
             second = site.build()
             self.assertFalse(second["rebuilt"])
 
+    def test_bom(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = new_site(os.path.join(tmp, "demo"))
+            (root / "content" / "bom.md").write_text(
+                "\ufeff---\ntitle: BOM\n---\n正文\n", encoding="utf-8"
+            )
+            Site(root).build()
+            page = (root / "public" / "bom.html").read_text(encoding="utf-8")
+            self.assertIn("<title>BOM", page)
+
+    def test_content_index_wins(self):
+        # content/index.md 存在时，自动索引不许覆盖它
+        with tempfile.TemporaryDirectory() as tmp:
+            root = new_site(os.path.join(tmp, "demo"))
+            (root / "content" / "index.md").write_text(
+                "---\ntitle: 我的首页\n---\n\n# 我的首页\n", encoding="utf-8"
+            )
+            Site(root).build()
+            index = (root / "public" / "index.html").read_text(encoding="utf-8")
+            self.assertIn("我的首页", index)
+            self.assertNotIn("hello.html", index)
+
+    def test_static_orphan_cleanup(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = new_site(os.path.join(tmp, "demo"))
+            Site(root).build()
+            self.assertTrue((root / "public" / "style.css").exists())
+            (root / "static" / "style.css").unlink()
+            Site(root).build()
+            self.assertFalse((root / "public" / "style.css").exists())
+
+    def test_new_site_refuses_nonempty(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = os.path.join(tmp, "demo")
+            os.makedirs(target)
+            (Path(target) / "x.txt").write_text("x", encoding="utf-8")
+            with self.assertRaises(FileExistsError):
+                new_site(target)
+
 
 if __name__ == "__main__":
     unittest.main()
