@@ -542,7 +542,7 @@ class TestBuild(unittest.TestCase):
             root = new_site(os.path.join(tmp, "demo"))
             site = Site(root)
             result = site.build()
-            self.assertEqual(result["pages"], 1)
+            self.assertEqual(result["pages"], 3)  # hello + about + products
             index = (root / "public" / "index.html").read_text(encoding="utf-8")
             self.assertIn("你好，世界", index)
             page = (root / "public" / "hello.html").read_text(encoding="utf-8")
@@ -574,8 +574,8 @@ class TestBuild(unittest.TestCase):
                 "---\ntitle: 首页\ndate: 2026-01-10\n---\n\n# 欢迎\n", encoding="utf-8"
             )
             result = Site(root).build()
-            # 3 文章 + 1 示例 + 1 首页 = 5（草稿排除）
-            self.assertEqual(result["pages"], 5)
+            # 3 文章 + 3 示例(hello/about/products) + 1 首页 = 7（草稿排除）
+            self.assertEqual(result["pages"], 7)
             pub = root / "public"
             # 自定义首页
             self.assertIn("欢迎", (pub / "index.html").read_text(encoding="utf-8"))
@@ -723,17 +723,17 @@ class TestBuild(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = self._make_paged_site(tmp, n=5, per_page=2)
             Site(root).build()
-            # hello + 5 篇 = 6 页内容 → 3 页
+            # hello/about/products + 5 篇 = 8 页内容 → 4 页
             self.assertTrue((root / "public" / "page" / "2.html").exists())
-            self.assertTrue((root / "public" / "page" / "3.html").exists())
-            self.assertFalse((root / "public" / "page" / "4.html").exists())
+            self.assertTrue((root / "public" / "page" / "4.html").exists())
+            self.assertFalse((root / "public" / "page" / "5.html").exists())
             index = (root / "public" / "index.html").read_text(encoding="utf-8")
             self.assertIn('href="/page/2.html"', index)
-            self.assertIn("1 / 3", index)
+            self.assertIn("1 / 4", index)
             self.assertNotIn("上一页", index)
-            p3 = (root / "public" / "page" / "3.html").read_text(encoding="utf-8")
-            self.assertIn('href="/page/2.html"', p3)  # 上一页
-            self.assertNotIn("下一页", p3)
+            p4 = (root / "public" / "page" / "4.html").read_text(encoding="utf-8")
+            self.assertIn('href="/page/3.html"', p4)  # 上一页
+            self.assertNotIn("下一页", p4)
             sm = (root / "public" / "sitemap.xml").read_text(encoding="utf-8")
             self.assertIn("<loc>/page/2.html</loc>", sm)
 
@@ -809,7 +809,7 @@ class TestBuild(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = new_site(os.path.join(tmp, "demo"))
             result = Site(root).build()
-            self.assertEqual(result["pages"], 1)
+            self.assertEqual(result["pages"], 3)
             self.assertFalse((root / "public" / "draft.html").exists())
             index = (root / "public" / "index.html").read_text(encoding="utf-8")
             self.assertNotIn("草稿示例", index)
@@ -818,7 +818,7 @@ class TestBuild(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = new_site(os.path.join(tmp, "demo"))
             result = Site(root).build(include_drafts=True)
-            self.assertEqual(result["pages"], 2)
+            self.assertEqual(result["pages"], 4)
             self.assertTrue((root / "public" / "draft.html").exists())
 
     def test_draft_stale_removed(self):
@@ -921,7 +921,7 @@ class TestBuild(unittest.TestCase):
             self.assertFalse(site.build()["rebuilt"])
             toml = root / "mssg.toml"
             toml.write_text(
-                toml.read_text(encoding="utf-8").replace("我的小站", "新标题"),
+                toml.read_text(encoding="utf-8").replace("星尘科技", "新标题"),
                 encoding="utf-8",
             )
             result = Site(root).build()
@@ -1072,10 +1072,10 @@ class TestCLI(unittest.TestCase):
             site = Site(root)
             site.build()
             index = (root / "public" / "index.html").read_text(encoding="utf-8")
-            self.assertIn("我的小站", index)
+            self.assertIn("星尘科技", index)
             toml = (root / "mssg.toml").read_text(encoding="utf-8")
             (root / "mssg.toml").write_text(
-                toml.replace('title = "我的小站"', 'title = "新标题"'),
+                toml.replace('title = "星尘科技"', 'title = "新标题"'),
                 encoding="utf-8",
             )
             site.build()

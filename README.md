@@ -56,8 +56,41 @@ front matter 是完整 YAML（PyYAML 解析），支持嵌套结构、多行字�
 
 ```toml
 [site]
-title = "我的小站"   # 站点标题，模板里用 {{ site.title }}
+title = "星尘科技"  # 站点标题，模板里用 {{ site.title }}
+description = "一句话介绍"  # meta description / og:description
 base_url = ""        # 站点根 URL，如 https://example.com（用于 feed/sitemap 绝对链接）
+
+# 导航菜单（按 weight 排序，模板里用 site.menu|sort(attribute="weight")）
+[[site.menu]]
+name = "首页"
+url = "/"
+weight = 1
+[[site.menu]]
+name = "关于"
+url = "/about.html"
+weight = 2
+
+# 首页 hero 区
+[site.hero]
+title = "把想法变成产品"
+subtitle = "副标题一句话"
+cta_text = "了解产品"     # 主按钮
+cta_url = "/products.html"
+cta2_text = "联系我们"    # 次按钮（可省略）
+cta2_url = "/about.html#contact"
+
+# 首页特性卡片（可增删，改完重新 build）
+[[site.features]]
+title = "开箱即用"
+text = "卡片描述文字"
+
+# 联系方式（页脚与关于页共用）
+[site.contact]
+email = "hi@example.com"
+phone = "400-000-0000"
+
+[site.footer]
+text = "© 2026 星尘科技"
 
 [build]
 content_dir = "content"     # Markdown 源目录
@@ -76,6 +109,9 @@ per_page = 0                # 首页/标签页每页篇数；0 为不分页
                             # 分页文件：首页 page/2.html…、标签页 tags/<tag>/2.html…
                             # （content 下不要建 page/、tags/<tag>/ 同名路径，以免冲突）
 ```
+
+换肤不需要改模板：改 `mssg.toml` 里的标题、菜单、hero、特性卡、
+联系方式，重新 `mssg build` 就是一家新公司。
 
 ## CLI 参考
 
@@ -191,6 +227,8 @@ python -m unittest discover -s tests
 - [x] 数据文件（`data/` → 模板变量）
 - [x] 并行构建、`mssg new post` 文章脚手架
 - [x] 第三方库迁移（Python-Markdown / Jinja2 / PyYAML / Pygments，0.4.0）
+- [x] 公司官网级脚手架：配置驱动换肤（菜单/hero/特性卡/页脚）、
+  响应式主题、OG/Twitter SEO 标签（0.5.0）
 
 后续想法：
 

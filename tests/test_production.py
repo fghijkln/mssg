@@ -207,9 +207,73 @@ class TestProductionBuild(unittest.TestCase):
                     encoding="utf-8",
                 )
             result = Site(root).build()
-            # 30 篇 + hello（draft.md 是草稿，默认排除）
-            self.assertEqual(result["pages"], 31)
+            # 30 篇 + hello/about/products（draft.md 是草稿，默认排除）
+            self.assertEqual(result["pages"], 33)
             self.assertTrue((root / "public" / "p29.html").exists())
+
+
+class TestCompanyScaffold(unittest.TestCase):
+    """公司站脚手架：配置驱动（菜单/hero/特性卡/页脚），不动模板可换肤。"""
+
+    def _build(self, tmp):
+        root = new_site(os.path.join(tmp, "demo"))
+        Site(root).build()
+        return root
+
+    def test_config_sections(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = new_site(os.path.join(tmp, "demo"))
+            toml = (root / "mssg.toml").read_text(encoding="utf-8")
+            for needle in ("[[site.menu]]", "[site.hero]", "[[site.features]]",
+                           "[site.contact]", "[site.footer]"):
+                self.assertIn(needle, toml)
+
+    def test_index_company_sections(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._build(tmp)
+            index = (root / "public" / "index.html").read_text(encoding="utf-8")
+            # 导航
+            self.assertIn('href="/products.html"', index)
+            self.assertIn("关于", index)
+            # hero
+            self.assertIn("把想法变成产品", index)
+            self.assertIn('class="hero"', index)
+            # 特性卡
+            self.assertIn("开箱即用", index)
+            self.assertIn('class="card"', index)
+            # 新闻区列出文章
+            self.assertIn('id="news"', index)
+            self.assertIn("你好，世界", index)
+            # SEO
+            self.assertIn('property="og:title"', index)
+            self.assertIn('name="description"', index)
+            # 页脚联系方式
+            self.assertIn("hi@example.com", index)
+
+    def test_sample_pages(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._build(tmp)
+            for name in ("about.html", "products.html", "hello.html"):
+                self.assertTrue((root / "public" / name).is_file(), name)
+            about = (root / "public" / "about.html").read_text(encoding="utf-8")
+            self.assertIn("关于我们", about)
+
+    def test_rebrand_without_templates(self):
+        # 只改配置不碰模板：换标题/hero/菜单即换肤
+        with tempfile.TemporaryDirectory() as tmp:
+            root = new_site(os.path.join(tmp, "demo"))
+            toml = root / "mssg.toml"
+            text = toml.read_text(encoding="utf-8")
+            text = text.replace('title = "星尘科技"', 'title = "青云制造"')
+            text = text.replace('title = "把想法变成产品"', 'title = "硬核制造"')
+            text = text.replace('星尘科技专注于', '青云制造专注于')
+            text = text.replace('text = "© 2026 星尘科技"', 'text = "© 2026 青云制造"')
+            toml.write_text(text, encoding="utf-8")
+            Site(root).build()
+            index = (root / "public" / "index.html").read_text(encoding="utf-8")
+            self.assertIn("青云制造", index)
+            self.assertIn("硬核制造", index)
+            self.assertNotIn("星尘科技", index)
 
 
 if __name__ == "__main__":

@@ -1,5 +1,24 @@
 # 更新日志
 
+## 0.5.0（2026-10-02）
+
+公司官网级脚手架。`mssg new` 现在生成一个可直接上线的公司站：
+导航栏、hero、特性卡片、新闻动态、页脚联系方式，全部在
+`mssg.toml` 里配置，不动模板即可换肤（参考 Hugo 社区公司主题的
+做法：品牌相关全部是配置项）。
+
+### 新功能
+
+- 新默认主题：响应式公司站（粘性导航、渐变 hero、特性卡片网格、
+  移动端自适应），纯 CSS、无 JS
+- `[[site.menu]]`：导航菜单（按 weight 排序）
+- `[site.hero]`：首页标题/副标题/双 CTA 按钮
+- `[[site.features]]`：首页特性卡片（增删改后重新 build 即可）
+- `[site.contact]` / `[site.footer]`：联系方式与页脚文字
+- SEO：Open Graph + Twitter Card meta 标签（base_url 配置后带 canonical 链接）
+- 首页新闻区（最新 5 篇）+ 分页导航；示例内容含"关于我们/产品介绍"两个页面
+- 配置缺省保护：`mssg.toml` 里不写 menu/hero 等节时模板不报错
+
 ## 0.4.0（2026-10-02）
 
 架构转向：不再追求零依赖。Markdown 渲染、模板引擎、front matter
