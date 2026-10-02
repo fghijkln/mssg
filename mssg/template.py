@@ -44,7 +44,7 @@ def render_template(name: str, ctx: dict, loader) -> str:
 def _do_render(src: str, ctx: dict, loader, name: str, seen: tuple) -> str:
     if name in seen:
         raise ValueError("模板继承循环：%s" % " -> ".join([*seen, name]))
-    extends, nodes, blocks = _parse_template(src)
+    extends, nodes, blocks = _parse_template(src, loader)
     if extends is None:
         child_ctx = dict(ctx)
         child_ctx.setdefault("__blocks__", blocks)
@@ -65,7 +65,7 @@ def _resolve_parent(name: str, loader, seen: tuple) -> tuple[list, dict]:
     src = loader(name)
     if src is None:
         raise ValueError("找不到父模板：%s" % name)
-    extends, nodes, blocks = _parse_template(src)
+    extends, nodes, blocks = _parse_template(src, loader)
     if extends is None:
         return nodes, blocks
     top_nodes, parent_blocks = _resolve_parent(extends, loader, (*seen, name))
@@ -74,7 +74,7 @@ def _resolve_parent(name: str, loader, seen: tuple) -> tuple[list, dict]:
     return top_nodes, merged
 
 
-def _parse_template(src: str) -> tuple[str | None, list, dict]:
+def _parse_template(src: str, loader) -> tuple[str | None, list, dict]:
     """解析模板源码，返回 (extends 父模板名|None, 节点, blocks)。"""
     tokens = list(_TOKEN.split(src))
     extends = None
@@ -89,7 +89,7 @@ def _parse_template(src: str) -> tuple[str | None, list, dict]:
             break  # 只看第一个 {% 标签
         # {{、{#、纯文本：继续向后找
     blocks: dict = {}
-    nodes, _ = _parse(tokens, 0, (), blocks, _skip_extends=extends is not None)
+    nodes, _ = _parse(tokens, 0, (), blocks, loader, _skip_extends=extends is not None)
     return extends, nodes, blocks
 
 
@@ -205,13 +205,41 @@ class _Block:
         return "".join(node.render(ctx) for node in body)
 
 
+class _Include:
+    def __init__(self, name: str, loader):
+        self.name = name
+        self.loader = loader
+
+    def render(self, ctx: dict) -> str:
+        seen = ctx.get("__include_seen__", ())
+        if self.name in seen:
+            raise ValueError(
+                "模板 include 循环：%s" % " -> ".join([*seen, self.name])
+            )
+        src = self.loader(self.name)
+        if src is None:
+            raise ValueError("找不到被引入的模板：%s" % self.name)
+        extends, nodes, blocks = _parse_template(src, self.loader)
+        if extends is not None:
+            raise ValueError("被 include 的模板不能使用 extends：%s" % self.name)
+        child = dict(ctx)
+        child["__blocks__"] = blocks
+        child["__include_seen__"] = (*seen, self.name)
+        return "".join(node.render(child) for node in nodes)
+
+
 def _tag_keyword(inner: str) -> str:
     parts = inner.split()
     return parts[0] if parts else ""
 
 
 def _parse(
-    tokens: list, pos: int, stops: tuple, blocks: dict, _skip_extends: bool = False
+    tokens: list,
+    pos: int,
+    stops: tuple,
+    blocks: dict,
+    loader,
+    _skip_extends: bool = False,
 ) -> tuple[list, int]:
     nodes: list = []
     seen_tag = False
@@ -242,7 +270,7 @@ def _parse(
                 m = _FOR.match(inner)
                 if not m:
                     raise ValueError("模板 for 语法错误：%s" % inner)
-                body, pos = _parse(tokens, pos + 1, ("endfor",), blocks)
+                body, pos = _parse(tokens, pos + 1, ("endfor",), blocks, loader)
                 pos += 1  # 跳过 endfor
                 nodes.append(_For(m.group(1), m.group(2), body))
             elif inner.startswith("if "):
@@ -250,7 +278,9 @@ def _parse(
                 cond: str | None = inner[3:].strip()
                 seen_else = False
                 while True:
-                    body, pos = _parse(tokens, pos + 1, ("elif", "else", "endif"), blocks)
+                    body, pos = _parse(
+                        tokens, pos + 1, ("elif", "else", "endif"), blocks, loader
+                    )
                     branches.append((cond, body))
                     inner2 = tokens[pos][2:-2].strip()
                     kw2 = _tag_keyword(inner2)
@@ -269,12 +299,20 @@ def _parse(
                 name = inner[len("block"):].strip()
                 if not name or not re.match(r"^\w+$", name):
                     raise ValueError("block 语法错误：%s" % inner)
-                body, pos = _parse(tokens, pos + 1, ("endblock",), blocks)
+                body, pos = _parse(tokens, pos + 1, ("endblock",), blocks, loader)
                 pos += 1  # 跳过 endblock
                 node = _Block(name, body)
                 if name not in blocks:
                     blocks[name] = node
                 nodes.append(node)
+            elif kw == "include":
+                m = re.match(r"""include\s+["']([^"']+)["']$""", inner)
+                if not m:
+                    raise ValueError("include 语法错误：%s" % inner)
+                if loader is None:
+                    raise ValueError("include 需要提供 loader")
+                nodes.append(_Include(m.group(1), loader))
+                pos += 1
             else:
                 raise ValueError("未知模板标签：%s" % inner)
         else:

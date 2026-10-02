@@ -96,6 +96,7 @@ ATX 标题、段落、`**粗体**`、`*斜体*`、`` `行内代码` ``、`[链�
 - `{# ... #}` —— 注释
 - `{% extends "base.html" %}` + `{% block name %} ... {% endblock %}` —— 模板继承
   （extends 必须为模板的第一个标签；子模板的 block 覆盖父模板；支持多级继承）
+- `{% include "part.html" %}` —— 引入模板片段（使用当前上下文；被引入的模板不能用 extends）
 
 模板可用变量：`site`（配置）、`page`（当前页面：title/date/content/url + front matter
 全部字段）、`pages`（首页：全部页面，按日期倒序）。

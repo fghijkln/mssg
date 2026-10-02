@@ -212,6 +212,42 @@ class TestTemplate(unittest.TestCase):
                 "{% if a %}A{% else %}B{% else %}C{% endif %}", {"a": 0}
             )
 
+    def test_include(self):
+        templates = {
+            "page.html": 'A{% include "part.html" %}B',
+            "part.html": "P{{ x }}",
+        }
+        out = template.render_template("page.html", {"x": 1}, templates.get)
+        self.assertEqual(out, "AP1B")
+
+    def test_include_missing(self):
+        with self.assertRaises(ValueError):
+            template.render('{% include "nope.html" %}', {}, {}.get)
+
+    def test_include_needs_loader(self):
+        with self.assertRaises(ValueError):
+            template.render('{% include "p.html" %}', {})
+
+    def test_include_cycle(self):
+        def loader(n):
+            return (
+                '{% include "b.html" %}'
+                if n == "a.html"
+                else '{% include "a.html" %}'
+            )
+
+        with self.assertRaises(ValueError):
+            template.render_template("a.html", {}, loader)
+
+    def test_include_with_extends_error(self):
+        templates = {
+            "page.html": '{% include "child.html" %}',
+            "child.html": '{% extends "base.html" %}',
+            "base.html": "B",
+        }
+        with self.assertRaises(ValueError):
+            template.render_template("page.html", {}, templates.get)
+
 
 class TestFrontMatter(unittest.TestCase):
     def test_split(self):
