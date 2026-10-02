@@ -159,6 +159,14 @@ class TestTemplate(unittest.TestCase):
         )
         self.assertEqual(out, "1a;1b;2a;2b;")
 
+    def test_method_not_exposed(self):
+        # 方法不能通过点号访问，避免泄露 <built-in method …>
+        self.assertEqual(template.render("{{ x.strip }}", {"x": "abc"}), "")
+        self.assertEqual(
+            template.render("{% if x.strip %}T{% else %}F{% endif %}", {"x": "abc"}),
+            "F",
+        )
+
     def test_deep_nesting_clear_error(self):
         # 病态嵌套：给出明确错误而非裸 RecursionError
         deep = "{% if a %}" * 5000 + "X" + "{% endif %}" * 5000

@@ -259,3 +259,18 @@
 - 新增 TestCLI：test_build_error_friendly、test_build_ok_returns_zero。
   测试 70/70 全绿。提交并推送，push 前测试全绿。
 
+## 迭代 25 — 新功能：分页（约 18:50）
+
+- 实现 `[build] per_page`：首页分页为 page/2.html…、标签页分页为
+  tags/<tag>/2.html…；模板变量 `pagination`（page/total_pages/multiple/
+  has_prev/has_next/prev_url/next_url）；分页 URL 自动计入 sitemap；
+  per_page 改动触发全量重建并清理多余分页文件；content/index.md 存在时不分页。
+- 脚手架 index.html/tag.html 加分页导航；mssg.toml 加 per_page 注释说明；
+  README 补全配置与模板变量文档；example/ 按新脚手架重新生成。
+- 新增测试 3 个：test_pagination_index、test_pagination_tag、
+  test_pagination_per_page_change_cleans。
+- 途中抓到 2 个测试代码 bug：`/` 与 `%` 运算符优先级、重复 `[build]` 表
+  导致 TOML 非法 —— 都是先写测试的好处。
+- 测试 73/73 全绿；fuzz 种子 112233，2000 用例 0 问题。
+- 提交 e576376 并推送，push 前测试全绿。
+

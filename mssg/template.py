@@ -100,7 +100,10 @@ def _resolve(name: str, ctx: dict):
         if isinstance(val, dict) and part in val:
             val = val[part]
         elif hasattr(val, part):
-            val = getattr(val, part)
+            attr = getattr(val, part)
+            if callable(attr):
+                return ""  # 方法/函数不暴露，避免输出 <built-in method …>
+            val = attr
         else:
             return ""
     return val
