@@ -26,10 +26,14 @@ class TestFilters(unittest.TestCase):
         self.assertEqual(self.r("{{ n|length }}", {"n": "abcd"}), "4")
 
     def test_chain(self):
+        # Jinja2 语义：default 只对未定义变量生效
         self.assertEqual(
-            self.r('{{ n|default("n/a")|upper }}', {"n": ""}), "N/A")
+            self.r('{{ n|default("n/a")|upper }}', {}), "N/A")
         self.assertEqual(
             self.r('{{ n|default("n/a")|upper }}', {"n": "hi"}), "HI")
+        # boolean=true 时对空字符串等 falsy 也生效
+        self.assertEqual(
+            self.r('{{ n|default("n/a", true)|upper }}', {"n": ""}), "N/A")
 
     def test_default(self):
         self.assertEqual(self.r("{{ n|default('x') }}", {}), "x")
@@ -40,11 +44,12 @@ class TestFilters(unittest.TestCase):
         self.assertEqual(self.r("{{ n|escape }}", {"n": "<b>"}), "&lt;b&gt;")
 
     def test_urlencode(self):
-        self.assertEqual(self.r("{{ n|urlencode }}", {"n": "a b/c"}), "a%20b%2Fc")
+        # Jinja2 内建 urlencode：空格转 %20，斜杠保留
+        self.assertEqual(self.r("{{ n|urlencode }}", {"n": "a b/c"}), "a%20b/c")
 
     def test_join_first_last(self):
         ctx = {"n": ["a", "b", "c"]}
-        self.assertEqual(self.r("{{ n|join }}", ctx), "a, b, c")
+        self.assertEqual(self.r("{{ n|join }}", ctx), "abc")  # Jinja2 默认无分隔符
         self.assertEqual(self.r('{{ n|join(";") }}', ctx), "a;b;c")
         self.assertEqual(self.r("{{ n|first }}", ctx), "a")
         self.assertEqual(self.r("{{ n|last }}", ctx), "c")
@@ -52,7 +57,11 @@ class TestFilters(unittest.TestCase):
     def test_replace_truncate(self):
         self.assertEqual(
             self.r('{{ n|replace("a", "o") }}', {"n": "banana"}), "bonono")
-        self.assertEqual(self.r("{{ n|truncate(3) }}", {"n": "abcdef"}), "abc…")
+        # Jinja2 truncate 默认 leeway=5：短串不截断；leeway=0 时精确截断
+        self.assertEqual(self.r("{{ n|truncate(3) }}", {"n": "abcdef"}), "abcdef")
+        self.assertEqual(
+            self.r("{{ n|truncate(5, true, '…', 0) }}", {"n": "abcdefghijklmnop"}),
+            "abcd…")
         self.assertEqual(self.r("{{ n|truncate(10) }}", {"n": "abc"}), "abc")
 
     def test_date(self):
@@ -75,7 +84,7 @@ class TestToc(unittest.TestCase):
         html = markdown.parse("## 章节标题\n### 子标题\n# 主标题\n")
         self.assertIn('<h2 id="章节标题">', html)
         self.assertIn('<h3 id="子标题">', html)
-        self.assertIn("<h1>主标题</h1>", html)  # h1 不加锚点
+        self.assertIn('<h1 id="主标题">主标题</h1>', html)  # h1 也有锚点
 
     def test_extract_toc(self):
         toc = markdown.extract_toc("# 忽略\n## 第二章\n### 2.1 节\n")
@@ -105,7 +114,7 @@ class TestProductionBuild(unittest.TestCase):
         )
         (root / "templates" / "index.html").write_text(
             "{% for p in pages %}{{ p.title }}|{{ p.summary_text }};"
-            "{% endfor %}{{ data.links.items|first|upper }}",
+            "{% endfor %}{{ data.links['items']|first|upper }}",
             encoding="utf-8",
         )
         return root

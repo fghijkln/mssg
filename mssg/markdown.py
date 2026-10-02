@@ -1,316 +1,61 @@
-"""mssg 自研 Markdown 子集解析器（零依赖，只用标准库）。
+"""Markdown 渲染（基于 Python-Markdown 第三方库）。
 
-支持的语法：
-    # ~ ######      ATX 标题
-    段落            连续非空行合并为一段
-    **粗体** *斜体* `行内代码`
-    [文字](url)     链接
-    ![alt](url)     图片
-    - / * / +       无序列表（支持嵌套）
-    1. / 1)         有序列表（支持嵌套）
-    >               引用块（可嵌套任意块级语法）
-    ```             围栏代码块
-    --- / ***       分隔线
-    | a | b |       简单表格（需表头分隔行）
+API（与旧自研解析器兼容）：
+  parse(src)        -> HTML
+  extract_toc(src)  -> [{level, text, id}]（h2/h3）
+  slugify(text)     -> 锚点 id
+
+启用的扩展：extra（含表格、脚注、定义列表等）、codehilite
+（Pygments 代码高亮）、toc（标题锚点 id）、sane_lists。
 """
 
 from __future__ import annotations
 
-import html
 import re
 
-_INLINE_CODE = re.compile(r"`([^`\n]+?)`")
-# 链接目标允许单层平衡括号（如 Wikipedia 的 /wiki/X_(Y)）。
-# 注：先做 html.escape（引号→&quot;），所以标题部分用 [^)]* 通配跳过（标题不渲染）。
-_URL = r"(?:[^\s()]|\([^\s()]*\))+"
-_TITLE = r"(?:\s+[^)]*)?"
-_IMAGE = re.compile(r"!\[([^\]]*)\]\(\s*(%s)%s\s*\)" % (_URL, _TITLE))
-_LINK = re.compile(r"\[([^\]]+)\]\(\s*(%s)%s\s*\)" % (_URL, _TITLE))
-_BOLD = re.compile(r"\*\*([^*]+?)\*\*")
-_ITALIC = re.compile(r"\*([^*]+?)\*")
-_HEADING = re.compile(r"^(#{1,6})\s+(.*?)\s*#*\s*$")
-_HR = re.compile(r"^(?:-\s*){3,}$|^(?:\*\s*){3,}$|^(?:_\s*){3,}$")
-_LIST_ITEM = re.compile(r"^(\s*)(?:([-*+])|(\d+)[.)])\s+(.*)$")
-_BLOCKQUOTE = re.compile(r"^\s*>\s?(.*)$")
-_TABLE_SEP_CELL = re.compile(r"^\s*:?-+:?\s*$")
+import markdown as _markdown
+from markdown.extensions.toc import slugify_unicode as _slugify_unicode
+
+_EXTENSIONS = ["extra", "codehilite", "toc", "sane_lists"]
+_EXTENSION_CONFIGS = {
+    "codehilite": {"guess_lang": False, "css_class": "codehilite"},
+    "toc": {"slugify": _slugify_unicode, "toc_depth": "2-3"},
+}
+_TAG_RE = re.compile(r"<[^>]+>")
 
 
-def slugify(text: str) -> str:
-    """标题转锚点 id：小写、CJK 保留、空白下划线转连字符、去杂字符。"""
-    text = re.sub(r"<[^>]+>", "", text)
-    text = text.lower()
-    text = re.sub(r"[\s_]+", "-", text)
-    text = re.sub(r"[^\w\-]", "", text, flags=re.UNICODE)
-    text = re.sub(r"-{2,}", "-", text).strip("-")
-    return text or "section"
-
-
-def extract_toc(src: str) -> list:
-    """从 Markdown 源码提取 h2/h3 目录：[{level, text, id}]。"""
-    toc = []
-    for m in re.finditer(r"^(#{2,3})\s+(.*?)\s*#*\s*$", src, re.M):
-        raw = m.group(2)
-        plain = re.sub(r"[*`_~\[\]()!]", "", raw).strip()
-        # 去掉链接的 URL 部分 [文字](url) -> 文字
-        plain = re.sub(r"\[([^\]]+)\]\([^)]*\)", r"\1", plain)
-        if plain:
-            toc.append({"level": len(m.group(1)),
-                        "text": plain, "id": slugify(plain)})
-    return toc
-
-# 合法 HTML 实体（&amp; &#123; &#x1F;）：转义 & 时要保留，不双重转义
-_ENTITY_TAIL = r"(?:#\d+|#x[0-9a-fA-F]+|[a-zA-Z][a-zA-Z0-9]*);"
-_AMP_NOT_ENTITY = re.compile(r"&(?!" + _ENTITY_TAIL + r")")
-
-
-def _escape_text(text: str) -> str:
-    """转义行内文本的 HTML 特殊字符，但保留已有的合法实体。"""
-    text = _AMP_NOT_ENTITY.sub("&amp;", text)
-    return text.replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
-
-
-def _inline(text: str) -> str:
-    """行内语法：先转义 HTML，再处理行内标记。
-
-    行内代码片段先暂存为占位符，避免其中的 *、**、[]() 被误解析。
-    引号也要转义，否则图片 alt/src、链接 href 拼接进双引号属性时会发生属性注入。
-    """
-    text = _escape_text(text)
-    codes: list[str] = []
-
-    def _stash(m: "re.Match") -> str:
-        codes.append(m.group(1))
-        return "\x00%d\x00" % (len(codes) - 1)
-
-    text = _INLINE_CODE.sub(_stash, text)
-    text = _IMAGE.sub(
-        lambda m: '<img src="%s" alt="%s">' % (m.group(2), m.group(1)), text
+def _new_md() -> "_markdown.Markdown":
+    return _markdown.Markdown(
+        extensions=_EXTENSIONS, extension_configs=_EXTENSION_CONFIGS
     )
-    text = _LINK.sub(
-        lambda m: '<a href="%s">%s</a>' % (m.group(2), m.group(1)), text
-    )
-    text = _BOLD.sub(r"<strong>\1</strong>", text)
-    text = _ITALIC.sub(r"<em>\1</em>", text)
-    for i, code in enumerate(codes):
-        text = text.replace("\x00%d\x00" % i, "<code>%s</code>" % code)
-    return text
 
 
 def parse(src: str) -> str:
-    """把 Markdown 子集源码转成 HTML 片段。"""
-    src = src.replace("\r\n", "\n").replace("\r", "\n")
-    lines = src.replace("\t", "    ").split("\n")
-    try:
-        blocks, _ = _parse_blocks(lines, 0)
-    except RecursionError:
-        raise ValueError("Markdown 嵌套过深（超过 Python 递归限制）")
-    return "\n".join(blocks)
+    """Markdown 转 HTML（含代码高亮与标题锚点）。"""
+    return _new_md().convert(src)
 
 
-def _parse_blocks(lines: list[str], i: int) -> tuple[list[str], int]:
-    out: list[str] = []
-    n = len(lines)
-    in_fence = False
-    fence: list[str] = []
-    para: list[str] = []
-
-    def flush_para() -> None:
-        if para:
-            out.append("<p>%s</p>" % _inline(" ".join(para)))
-            para.clear()
-
-    while i < n:
-        line = lines[i]
-        stripped = line.strip()
-
-        if line.startswith("```"):
-            flush_para()
-            if not in_fence:
-                in_fence = True
-                fence = []
-            else:
-                in_fence = False
-                out.append(
-                    "<pre><code>%s</code></pre>" % html.escape("\n".join(fence))
-                )
-            i += 1
-            continue
-        if in_fence:
-            fence.append(line)
-            i += 1
-            continue
-        if not stripped:
-            flush_para()
-            i += 1
-            continue
-
-        m = _HEADING.match(line)
-        if m:
-            flush_para()
-            level = len(m.group(1))
-            inner = _inline(m.group(2))
-            if level >= 2:
-                # h2/h3 加锚点 id，供 TOC 跳转
-                plain = re.sub(r"[*`_~\[\]()!]", "", m.group(2)).strip()
-                plain = re.sub(r"\[([^\]]+)\]\([^)]*\)", r"\1", plain)
-                out.append('<h%d id="%s">%s</h%d>'
-                           % (level, slugify(plain), inner, level))
-            else:
-                out.append("<h%d>%s</h%d>" % (level, inner, level))
-            i += 1
-            continue
-        if _HR.match(line):
-            flush_para()
-            out.append("<hr>")
-            i += 1
-            continue
-        if _BLOCKQUOTE.match(line):
-            flush_para()
-            quote_lines = []
-            while i < n:
-                qm = _BLOCKQUOTE.match(lines[i])
-                if not qm:
-                    break
-                quote_lines.append(qm.group(1))
-                i += 1
-            inner, _ = _parse_blocks(quote_lines, 0)
-            out.append("<blockquote>\n%s\n</blockquote>" % "\n".join(inner))
-            continue
-        if _LIST_ITEM.match(line):
-            flush_para()
-            list_html, i = _parse_list(lines, i)
-            out.append(list_html)
-            continue
-        if stripped.startswith("|") and i + 1 < n and _is_table_sep(lines[i + 1]):
-            flush_para()
-            table_html, i = _parse_table(lines, i)
-            out.append(table_html)
-            continue
-
-        para.append(stripped)
-        i += 1
-
-    flush_para()
-    if in_fence:
-        # 围栏代码块未闭合：按闭合处理，避免内容静默丢失
-        out.append("<pre><code>%s</code></pre>" % html.escape("\n".join(fence)))
-    return out, i
+def slugify(text: str) -> str:
+    """标题转锚点 id（CJK 保留）。"""
+    return _slugify_unicode(text, "-")
 
 
-def _parse_list(lines: list[str], i: int) -> tuple[str, int]:
-    """解析一个列表（支持嵌套），返回 (html, 下一行下标）。"""
-    n = len(lines)
-    m0 = _LIST_ITEM.match(lines[i])
-    assert m0 is not None
-    base = len(m0.group(1))
-    ordered = m0.group(3) is not None
-    entries: list[list[str]] = []  # [正文 html, 子列表 html]
+def extract_toc(src: str) -> list:
+    """提取 h2/h3 目录：[{level, text, id}]。"""
+    md = _new_md()
+    md.convert(src)
+    out = []
 
-    while i < n:
-        m = _LIST_ITEM.match(lines[i])
-        if not m:
-            break
-        indent = len(m.group(1))
-        cur_ordered = m.group(3) is not None
-        if indent < base or (indent == base and cur_ordered != ordered):
-            break
-        if indent > base:
-            sub, i = _parse_list(lines, i)
-            entries[-1][1] += sub
-            continue
-        entries.append([_inline(m.group(4)), ""])
-        i += 1
-
-    tag = "ol" if ordered else "ul"
-    parts = ["<%s>" % tag]
-    for text, children in entries:
-        parts.append("<li>%s%s</li>" % (text, children))
-    parts.append("</%s>" % tag)
-    return "\n".join(parts), i
-
-
-def _is_table_sep(line: str) -> bool:
-    s = line.strip()
-    if not (s.startswith("|") and s.endswith("|")):
-        return False
-    cells = s.strip("|").split("|")
-    return bool(cells) and all(_TABLE_SEP_CELL.match(c) for c in cells)
-
-
-def _split_row(line: str) -> list[str]:
-    """按 | 切分表格行，反引号内的 | 不切分。"""
-    s = line.strip()
-    if s.startswith("|"):
-        s = s[1:]
-    if s.endswith("|"):
-        s = s[:-1]
-    cells: list[str] = []
-    buf: list[str] = []
-    in_code = False
-    for ch in s:
-        if ch == "`":
-            in_code = not in_code
-            buf.append(ch)
-        elif ch == "|" and not in_code:
-            cells.append("".join(buf))
-            buf = []
-        else:
-            buf.append(ch)
-    cells.append("".join(buf))
-    return [c.strip() for c in cells]
-
-
-def _col_alignments(sep_line: str) -> list[str]:
-    """从表格分隔行解析每列对齐方式（:---: 居中、---: 右对齐、:--- 左对齐）。"""
-    aligns = []
-    for cell in _split_row(sep_line):
-        c = cell.strip()
-        left, right = c.startswith(":"), c.endswith(":")
-        if left and right and len(c) > 2:
-            aligns.append("center")
-        elif right:
-            aligns.append("right")
-        elif left:
-            aligns.append("left")
-        else:
-            aligns.append("")
-    return aligns
-
-
-def _align_attr(align: str) -> str:
-    return ' style="text-align:%s"' % align if align else ""
-
-
-def _parse_table(lines: list[str], i: int) -> tuple[str, int]:
-    header = _split_row(lines[i])
-    aligns = _col_alignments(lines[i + 1])
-    i += 2  # 跳过表头与分隔行
-    rows = []
-    n = len(lines)
-    while i < n and lines[i].strip().startswith("|"):
-        rows.append(_split_row(lines[i]))
-        i += 1
-
-    def _align(idx: int) -> str:
-        return aligns[idx] if idx < len(aligns) else ""
-
-    parts = ["<table>"]
-    parts.append(
-        "<thead><tr>%s</tr></thead>"
-        % "".join(
-            "<th%s>%s</th>" % (_align_attr(_align(k)), _inline(c))
-            for k, c in enumerate(header)
-        )
-    )
-    parts.append("<tbody>")
-    for row in rows:
-        parts.append(
-            "<tr>%s</tr>"
-            % "".join(
-                "<td%s>%s</td>" % (_align_attr(_align(k)), _inline(c))
-                for k, c in enumerate(row)
+    def walk(tokens):
+        for tok in tokens:
+            out.append(
+                {
+                    "level": tok["level"],
+                    "text": _TAG_RE.sub("", tok["name"]).strip(),
+                    "id": tok["id"],
+                }
             )
-        )
-    parts.append("</tbody>")
-    parts.append("</table>")
-    return "\n".join(parts), i
+            walk(tok.get("children", []))
+
+    walk(md.toc_tokens)
+    return out

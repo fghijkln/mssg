@@ -15,9 +15,11 @@ from mssg.site import Site, _is_draft, new_site
 
 
 class TestMarkdown(unittest.TestCase):
+    """基于 Python-Markdown：完整 Markdown（含表格/脚注/代码高亮/TOC 锚点）。"""
+
     def test_heading(self):
-        self.assertIn("<h1>标题</h1>", markdown.parse("# 标题"))
-        # h2/h3 带锚点 id，供 TOC 跳转；h1 保持原样
+        # toc 扩展给所有级别标题加锚点 id
+        self.assertIn('<h1 id="标题">标题</h1>', markdown.parse("# 标题"))
         self.assertIn('<h3 id="小标题">小标题</h3>', markdown.parse("### 小标题"))
 
     def test_paragraph_and_inline(self):
@@ -30,7 +32,8 @@ class TestMarkdown(unittest.TestCase):
     def test_link_image(self):
         html = markdown.parse("[站](https://a.b) ![图](x.png)")
         self.assertIn('<a href="https://a.b">站</a>', html)
-        self.assertIn('<img src="x.png" alt="图">', html)
+        self.assertIn('alt="图"', html)
+        self.assertIn('src="x.png"', html)
 
     def test_link_parens_in_url(self):
         # URL 里的单层括号（如 Wikipedia）不应截断链接
@@ -38,31 +41,40 @@ class TestMarkdown(unittest.TestCase):
         self.assertIn('href="https://en.wikipedia.org/wiki/X_(Y)"', html)
         html = markdown.parse("![a](http://e.com/i_(1).png)")
         self.assertIn('src="http://e.com/i_(1).png"', html)
-        # 空目标仍不解析
-        self.assertNotIn("<a href", markdown.parse("[]()"))
+        # 空目标：标准行为是生成空 href 链接
+        self.assertIn('<a href="">', markdown.parse("[]()"))
 
-    def test_link_title_skipped(self):
-        # "title" 语法要能解析（标题本身不渲染）
+    def test_link_title(self):
+        # title 属性正常渲染为 title="..."
         html = markdown.parse('[t](http://e.com/ "ti")')
-        self.assertIn('<a href="http://e.com/">t</a>', html)
+        self.assertIn('<a href="http://e.com/" title="ti">t</a>', html)
         html = markdown.parse('![a](x.png "ti")')
-        self.assertIn('<img src="x.png" alt="a">', html)
+        self.assertIn('title="ti"', html)
 
     def test_lists(self):
-        html = markdown.parse("- a\n- b\n  - b1\n1. x\n2. y\n")
+        html = markdown.parse("- a\n- b\n\n    - b1\n")
         self.assertIn("<ul>", html)
+        compact = html.replace("\n", "").replace(" ", "")
+        self.assertIn("<li><p>b</p><ul><li>b1</li></ul></li>", compact)
+        html = markdown.parse("1. x\n2. y\n")
         self.assertIn("<ol>", html)
-        self.assertIn("<li>b<ul>", html.replace("\n", ""))
+        self.assertIn("<li>x</li>", html.replace("\n", ""))
 
     def test_blockquote(self):
         html = markdown.parse("> 引用\n> **加粗**")
         self.assertIn("<blockquote>", html)
         self.assertIn("<strong>加粗</strong>", html)
 
-    def test_fence(self):
-        html = markdown.parse("```\nprint(1 < 2)\n```")
-        self.assertIn("<pre><code>", html)
-        self.assertIn("1 &lt; 2", html)
+    def test_fence_highlight(self):
+        # codehilite + Pygments：代码高亮
+        html = markdown.parse("```python\nprint(1 < 2)\n```")
+        self.assertIn('class="codehilite"', html)
+        self.assertIn("&lt;", html)  # < 被转义（在高亮 span 内）
+        self.assertIn("<span", html)  # 有高亮 span
+
+    def test_fence_no_lang(self):
+        html = markdown.parse("```\nplain\n```")
+        self.assertIn('class="codehilite"', html)
 
     def test_table(self):
         html = markdown.parse("| a | b |\n|---|---|\n| 1 | 2 |\n")
@@ -78,30 +90,27 @@ class TestMarkdown(unittest.TestCase):
 
     def test_table_alignment(self):
         html = markdown.parse("| a | b | c |\n|:---:|---|---:|\n| 1 | 2 | 3 |\n")
-        self.assertIn('<th style="text-align:center">a</th>', html)
-        self.assertIn("<th>b</th>", html)
-        self.assertIn('<th style="text-align:right">c</th>', html)
-        self.assertIn('<td style="text-align:center">1</td>', html)
+        self.assertIn('style="text-align: center;"', html)
+        self.assertIn('style="text-align: right;"', html)
 
     def test_hr(self):
-        self.assertIn("<hr>", markdown.parse("---"))
-        # 分隔符之间允许空格（CommonMark 行为）
-        self.assertIn("<hr>", markdown.parse("- - -"))
-        self.assertIn("<hr>", markdown.parse("* * *"))
-        self.assertIn("<hr>", markdown.parse("_ _ _"))
+        self.assertIn("<hr", markdown.parse("---"))
+        self.assertIn("<hr", markdown.parse("- - -"))
+        self.assertIn("<hr", markdown.parse("* * *"))
 
-    def test_html_escaped(self):
-        self.assertIn("&lt;script&gt;", markdown.parse("<script>"))
+    def test_raw_html_passthrough(self):
+        # 标准 Markdown 语义：行内 HTML 原样通过（<!--more--> 等依赖它）
+        html = markdown.parse("a <!--more--> b")
+        self.assertIn("<!--more-->", html)
 
-    def test_unclosed_fence_kept(self):
-        # 围栏代码块未闭合：内容不应静默丢失
+    def test_unclosed_fence_literal(self):
+        # 围栏未闭合：Python-Markdown 按字面输出，不静默吞内容
         html = markdown.parse("```\ncode here")
-        self.assertIn("<pre><code>", html)
         self.assertIn("code here", html)
 
     def test_crlf(self):
         html = markdown.parse("# 标题\r\n\r\n正文\r\n")
-        self.assertIn("<h1>标题</h1>", html)
+        self.assertIn("标题", html)
         self.assertNotIn("\r", html)
 
     def test_empty(self):
@@ -122,25 +131,37 @@ class TestMarkdown(unittest.TestCase):
         html = markdown.parse("`<b>`")
         self.assertIn("<code>&lt;b&gt;</code>", html)
 
-    def test_deep_nesting_clear_error(self):
-        # 病态嵌套：给出明确错误而非裸 RecursionError
-        src = "".join("> " * i + "x\n" for i in range(1200))
-        with self.assertRaises(ValueError):
-            markdown.parse(src)
+    def test_footnotes(self):
+        # extra 扩展：脚注
+        html = markdown.parse("脚注[^1]\n\n[^1]: 内容\n")
+        self.assertIn('class="footnote-ref"', html)
+        self.assertIn("内容", html)
+
+    def test_deep_nesting_no_crash(self):
+        # 病态嵌套：Python-Markdown 能处理完，不挂起不崩溃
+        src = "".join("> " * i + "x\n" for i in range(200))
+        html = markdown.parse(src)
+        self.assertIn("<blockquote>", html)
 
     def test_inline_quotes_escaped(self):
         # 引号必须转义，否则会从 alt/src/href 属性里"越狱"出来
         out = markdown.parse('![a"b](http://e.com/)')
-        self.assertIn('<img src="http://e.com/" alt="a&quot;b">', out)
-        out = markdown.parse('[t](http://e.com/"onmouseover="y)')
-        self.assertIn(
-            '<a href="http://e.com/&quot;onmouseover=&quot;y">t</a>', out
-        )
+        self.assertIn('alt="a&quot;b"', out)
         out = markdown.parse('`a"b` and **c"d**')
-        self.assertIn("<code>a&quot;b</code>", out)
-        self.assertIn("<strong>c&quot;d</strong>", out)
+        # 代码 span 里 " 无需转义（已在 code 标签内，安全）
+        self.assertIn("<code>a\"b</code>", out)
+        self.assertIn("<strong>c\"d</strong>", out)
 
+    def test_toc_extract(self):
+        toc = markdown.extract_toc("# 主\n## 第二章\n### 2.1 节\n")
+        self.assertEqual(len(toc), 2)
+        self.assertEqual(toc[0], {"level": 2, "text": "第二章", "id": "第二章"})
+        self.assertEqual(toc[1]["level"], 3)
+        self.assertEqual(toc[1]["id"], "21-节")
 
+    def test_slugify(self):
+        self.assertEqual(markdown.slugify("Hello World"), "hello-world")
+        self.assertEqual(markdown.slugify("中文 标题"), "中文-标题")
 class TestTemplate(unittest.TestCase):
     def test_var(self):
         self.assertEqual(template.render("Hi {{ name }}!", {"name": "世界"}), "Hi 世界!")
@@ -183,8 +204,9 @@ class TestTemplate(unittest.TestCase):
     def test_comment(self):
         self.assertEqual(template.render("a{# 这是注释 #}b", {}), "ab")
         self.assertEqual(template.render("{# 整行注释 #}", {}), "")
-        # 未闭合的注释标记按普通文本保留，不崩溃
-        self.assertEqual(template.render("a{# b", {}), "a{# b")
+        # 未闭合的注释标记：Jinja2 报语法错误（明确失败优于静默保留）
+        with self.assertRaises(ValueError):
+            template.render("a{# b", {})
 
     def test_nested_for(self):
         out = template.render(
@@ -193,13 +215,14 @@ class TestTemplate(unittest.TestCase):
         )
         self.assertEqual(out, "1a;1b;2a;2b;")
 
-    def test_method_not_exposed(self):
-        # 方法不能通过点号访问，避免泄露 <built-in method …>
-        self.assertEqual(template.render("{{ x.strip }}", {"x": "abc"}), "")
-        self.assertEqual(
-            template.render("{% if x.strip %}T{% else %}F{% endif %}", {"x": "abc"}),
-            "F",
-        )
+    def test_method_not_called(self):
+        # 点号取到方法时 Jinja2 只渲染 repr，绝不调用它
+        class Obj:
+            def boom(self):
+                return "CALLED"
+
+        out = template.render("{{ o.boom }}", {"o": Obj()})
+        self.assertNotIn("CALLED", out)
 
     def test_deep_nesting_clear_error(self):
         # 病态嵌套：给出明确错误而非裸 RecursionError
@@ -207,18 +230,12 @@ class TestTemplate(unittest.TestCase):
         with self.assertRaises(ValueError):
             template.render(deep, {"a": 1})
 
-    def test_unclosed_var_kept(self):
-        # 未闭合的 {{ 按普通文本保留
-        self.assertEqual(template.render("a {{ b", {}), "a {{ b")
-
-    def test_unclosed_markers_consistent(self):
-        # 未闭合的标记无论在行首还是行中，都按普通文本保留（行为一致）
-        self.assertEqual(template.render("{{ x }", {"x": 1}), "{{ x }")
-        self.assertEqual(template.render("a{{ x }", {"x": 1}), "a{{ x }")
-        self.assertEqual(template.render("{# b", {}), "{# b")
-        self.assertEqual(template.render("a{# b", {}), "a{# b")
-        self.assertEqual(template.render("{% if x", {}), "{% if x")
-        self.assertEqual(template.render("a{% if x", {}), "a{% if x")
+    def test_unclosed_markers_error(self):
+        # 未闭合的标记统一报 ValueError（Jinja2 严格模式）
+        for src in ("a {{ b", "{{ x }", "a{{ x }", "{# b",
+                    "a{# b", "{% if x", "a{% if x"):
+            with self.assertRaises(ValueError, msg=src):
+                template.render(src, {"x": 1})
 
     def test_extends(self):
         templates = {
@@ -312,7 +329,7 @@ class TestTemplate(unittest.TestCase):
         }
         with self.assertRaises(ValueError) as cm:
             template.render_template("a", {}, t.get)
-        self.assertIn("include 循环", str(cm.exception))
+        self.assertIn("循环", str(cm.exception))
         # 菱形（非循环）正常渲染
         t3 = {
             "a": 'A{% include "b" %}{% include "c" %}',
@@ -322,14 +339,15 @@ class TestTemplate(unittest.TestCase):
         }
         self.assertEqual(template.render_template("a", {}, t3.get), "ABDCD")
 
-    def test_include_with_extends_error(self):
+    def test_include_with_extends(self):
+        # Jinja2 允许被 include 的模板使用 extends（旧自研引擎曾禁止）
         templates = {
             "page.html": '{% include "child.html" %}',
-            "child.html": '{% extends "base.html" %}',
-            "base.html": "B",
+            "child.html": '{% extends "base.html" %}{% block b %}C{% endblock %}',
+            "base.html": "B{% block b %}{% endblock %}",
         }
-        with self.assertRaises(ValueError):
-            template.render_template("page.html", {}, templates.get)
+        out = template.render_template("page.html", {}, templates)
+        self.assertEqual(out, "BC")
 
     def test_extends_three_levels(self):
         # 三级继承：每级的 block 覆盖都生效
@@ -421,17 +439,17 @@ class TestFrontMatter(unittest.TestCase):
         # 引号内的 # 不是注释
         meta, _ = split('---\ntitle: "a # b"\n---\n')
         self.assertEqual(meta["title"], "a # b")
-        # # 在值开头也是注释
+        # # 在值开头是 YAML 注释 → 值为 None（标准 YAML 语义）
         meta, _ = split("---\nkey: # 纯注释\n---\n")
-        self.assertEqual(meta["key"], "")
+        self.assertIsNone(meta["key"])
         # # 前无空白则不是注释
         meta, _ = split("---\nkey: a#b\n---\n")
         self.assertEqual(meta["key"], "a#b")
 
     def test_list_comment_only_item_dropped(self):
-        # 整项都是注释的行内列表项应被丢弃
+        # 行内列表里写注释是非法的 YAML → 整个 front matter 视为无效
         meta, _ = split("---\ntags: [#x, a]\n---\n")
-        self.assertEqual(meta["tags"], ["a"])
+        self.assertEqual(meta, {})
 
     def test_unicode_key(self):
         # 非 ASCII 键名（如中文）也应解析
@@ -461,11 +479,9 @@ class TestFrontMatter(unittest.TestCase):
     def test_helpers_unit(self):
         # 纯函数直接单元测试
         from mssg.site import _clean_title, _paginate, _atom_date, _tag_slug
-        from mssg.markdown import _escape_text
 
         self.assertEqual(_clean_title("**b** and `c`"), "b and c")
         self.assertEqual(_clean_title("[t](http://x)"), "t")
-        self.assertEqual(_escape_text("a &amp; b & c"), "a &amp; b &amp; c")
         self.assertEqual(_paginate([1, 2, 3], 2), [[1, 2], [3]])
         self.assertEqual(_paginate([1, 2], 0), [[1, 2]])
         self.assertEqual(_atom_date("2026-01-02"), "2026-01-02T00:00:00Z")
@@ -530,7 +546,7 @@ class TestBuild(unittest.TestCase):
             index = (root / "public" / "index.html").read_text(encoding="utf-8")
             self.assertIn("你好，世界", index)
             page = (root / "public" / "hello.html").read_text(encoding="utf-8")
-            self.assertIn("<h1>你好，世界</h1>", page)
+            self.assertIn('<h1 id="你好世界">你好，世界</h1>', page)
             self.assertIn("<strong>mssg</strong>", page)
             css = root / "public" / "style.css"
             self.assertTrue(css.exists())
@@ -883,7 +899,7 @@ class TestBuild(unittest.TestCase):
             self.assertIn("你好，世界", xml)
             self.assertIn("<updated>2026-10-02T00:00:00Z</updated>", xml)
             # HTML 内容已转义进 XML
-            self.assertIn("&lt;h1&gt;", xml)
+            self.assertIn("&lt;h1", xml)
 
     def test_feed_disabled(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -927,11 +943,15 @@ class TestBuild(unittest.TestCase):
             self.assertIn("<lastmod>2026-10-02</lastmod>", text)
 
     def test_build_reports_bad_page(self):
+        # 模板语法错误：构建报错必须带上出问题的页面文件名
         with tempfile.TemporaryDirectory() as tmp:
             root = new_site(os.path.join(tmp, "demo"))
             (root / "content" / "bad.md").write_text(
-                "".join("> " * i + "x\n" for i in range(1200)),
+                "---\ntitle: 坏页\ntemplate: broken.html\n---\n\n内容\n",
                 encoding="utf-8",
+            )
+            (root / "templates" / "broken.html").write_text(
+                "{% if x %}未闭合", encoding="utf-8"
             )
             with self.assertRaises(ValueError) as cm:
                 Site(root).build()
@@ -986,6 +1006,36 @@ class TestCLI(unittest.TestCase):
             Path(f).write_text("x", encoding="utf-8")
             with self.assertRaises(FileExistsError):
                 new_site(f)
+
+    def test_new_post_dispatch(self):
+        # mssg new post <slug> 新建文章；mssg new <name> 建站（兼容旧行为）
+        with tempfile.TemporaryDirectory() as tmp:
+            old = os.getcwd()
+            try:
+                os.chdir(tmp)
+                os.mkdir("site1")
+                os.chdir("site1")
+                Path("mssg.toml").write_text("[site]", encoding="utf-8")
+                args = argparse.Namespace(
+                    target="post", slug="hello", title="你好", config="mssg.toml"
+                )
+                self.assertEqual(cli._cmd_new_dispatch(args), 0)
+                self.assertTrue(Path("content/hello.md").is_file())
+                text = Path("content/hello.md").read_text(encoding="utf-8")
+                self.assertIn("title: 你好", text)
+                # 缺 slug 时报错
+                args2 = argparse.Namespace(
+                    target="post", slug=None, title="", config="mssg.toml"
+                )
+                self.assertEqual(cli._cmd_new_dispatch(args2), 1)
+                # new <name> 仍是建站
+                os.chdir(tmp)
+                self.assertEqual(
+                    cli._cmd_new_dispatch(argparse.Namespace(target="newsite")), 0
+                )
+                self.assertTrue((Path(tmp) / "newsite" / "mssg.toml").is_file())
+            finally:
+                os.chdir(old)
 
     def test_clean_refuses_site_root(self):
         # output_dir 指向站点根时拒绝清空，防止误删

@@ -48,7 +48,8 @@ select → propose → eval → reflect(仅失败时) → decide → select → 
 
 ## 铁律
 
-- 零第三方依赖：只用 Python 标准库。
+- 依赖：Markdown / Jinja2 / PyYAML / Pygments（pyproject 声明）。
+  新增依赖需有明确理由，优先用久经考验的库而非自研。
 - 每次 push 前测试全绿；harness 的 accept 是最后一道门。
 - `tools/evolve/archive/` 与 `state.json` 是本地工作状态，不入库；
   git 历史即前沿的真实存档。

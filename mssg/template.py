@@ -1,229 +1,45 @@
-"""mssg 自研模板引擎（零依赖，只用标准库）。
+"""模板引擎（基于 Jinja2 第三方库）。
 
-支持的语法：
-    {{ name }} / {{ page.title }}        变量（支持点号取值，缺失则为空）
-    {% for post in posts %} ... {% endfor %}
-    {% if x %} ... {% elif y %} ... {% else %} ... {% endif %}
+API（与旧自研引擎兼容）：
+  render(template_str, ctx, templates=None)  -> 渲染字符串模板
+  render_template(name, ctx, templates)       -> 按名称渲染（支持继承/include）
 
-if 条件支持：变量真值、not x、a == b、a != b（b 可为引号字符串、数字或变量）。
-for 循环体内可用 loop.index（从 1 计）与 loop.index0（从 0 计）。
-{# ... #} 为注释，原样丢弃。
-过滤器：{{ name|upper }}，支持链式 {{ x|default("n/a")|upper }}，
-可用：upper/lower/title/capitalize/trim/escape/striptags/urlencode/
-length/join/first/last/default(x)/replace(a,b)/truncate(n)/date(fmt)。
+Jinja2 原生支持：{{ }}、{% if/for/elif/else %}、{# 注释 #}、
+{% extends %}/{% block %}、{% include %}、loop.index/loop.index0，
+以及 upper/lower/title/trim/escape/striptags/join/first/last/
+length/default/replace/truncate 等内置过滤器。
+mssg 额外注册：date(fmt)（"2026-10-02" → 按格式输出）。
 """
 
 from __future__ import annotations
 
-import html
-import re
 from datetime import datetime
-from urllib.parse import quote as _urlquote
 
-_TOKEN = re.compile(r"({{.*?}}|{%.*?%}|{#.*?#})", re.S)
-_FOR = re.compile(r"for\s+(\w+)\s+in\s+([\w.]+)$")
+from jinja2 import BaseLoader, DictLoader, Environment, TemplateError, TemplateNotFound
 
 
-def render(template: str, ctx: dict, loader=None) -> str:
-    """渲染模板字符串。
+class _CallableLoader(BaseLoader):
+    """兼容旧 API：loader 为 name -> 源码（找不到返回 None）的可调用对象。"""
 
-    若模板首标签为 {% extends "parent.html" %}，则按继承链渲染，
-    需要 loader(name) -> 模板源码（找不到返回 None）。
-    """
-    try:
-        return _do_render(template, ctx, loader, "<string>", ())
-    except RecursionError:
-        raise ValueError("模板嵌套过深（超过 Python 递归限制）")
+    def __init__(self, fn):
+        self.fn = fn
 
-
-def render_template(name: str, ctx: dict, loader) -> str:
-    """按名称渲染模板（支持继承），loader(name) 返回源码或 None。"""
-    src = loader(name)
-    if src is None:
-        raise ValueError("找不到模板：%s" % name)
-    try:
-        return _do_render(src, ctx, loader, name, ())
-    except RecursionError:
-        raise ValueError("模板嵌套过深（超过 Python 递归限制）")
-
-
-def _do_render(src: str, ctx: dict, loader, name: str, seen: tuple) -> str:
-    if name in seen:
-        raise ValueError("模板继承循环：%s" % " -> ".join([*seen, name]))
-    extends, nodes, blocks = _parse_template(src, loader)
-    if extends is None:
-        child_ctx = dict(ctx)
-        child_ctx.setdefault("__blocks__", blocks)
-        return "".join(node.render(child_ctx) for node in nodes)
-    if loader is None:
-        raise ValueError("模板使用了 {%% extends %%} 但未提供 loader")
-    top_nodes, merged = _resolve_parent(extends, loader, (*seen, name))
-    merged = dict(merged)
-    merged.update(blocks)  # 子模板的 block 覆盖父模板
-    child_ctx = dict(ctx)
-    child_ctx["__blocks__"] = merged
-    return "".join(node.render(child_ctx) for node in top_nodes)
-
-
-def _resolve_parent(name: str, loader, seen: tuple) -> tuple[list, dict]:
-    """沿继承链向上解析，返回 (顶层父模板节点, 合并后的 blocks)。"""
-    if name in seen:
-        raise ValueError("模板继承循环：%s" % " -> ".join([*seen, name]))
-    src = loader(name)
-    if src is None:
-        raise ValueError("找不到父模板：%s" % name)
-    extends, nodes, blocks = _parse_template(src, loader)
-    if extends is None:
-        return nodes, blocks
-    top_nodes, parent_blocks = _resolve_parent(extends, loader, (*seen, name))
-    merged = dict(parent_blocks)
-    merged.update(blocks)
-    return top_nodes, merged
-
-
-def _parse_template(src: str, loader) -> tuple[str | None, list, dict]:
-    """解析模板源码，返回 (extends 父模板名|None, 节点, blocks)。"""
-    tokens = list(_TOKEN.split(src))
-    extends = None
-    for tok in tokens:
-        if tok.startswith("{%") and tok.endswith("%}"):
-            inner = tok[2:-2].strip()
-            if _tag_keyword(inner) == "extends":
-                m = re.match(r"""extends\s+["']([^"']+)["']$""", inner)
-                if not m:
-                    raise ValueError("extends 语法错误：%s" % inner)
-                extends = m.group(1)
-            break  # 只看第一个 {% 标签
-        # {{、{#、纯文本：继续向后找
-    blocks: dict = {}
-    nodes, _ = _parse(tokens, 0, (), blocks, loader, _skip_extends=extends is not None)
-    return extends, nodes, blocks
-
-
-def _resolve(name: str, ctx: dict):
-    parts = name.split(".")
-    val = ctx
-    for part in parts:
-        if isinstance(val, dict) and part in val:
-            val = val[part]
-        elif hasattr(val, part):
-            attr = getattr(val, part)
-            if callable(attr):
-                return ""  # 方法/函数不暴露，避免输出 <built-in method …>
-            val = attr
-        else:
-            return ""
-    return val
-
-
-def _is_truthy(val) -> bool:
-    if val is None or val is False:
-        return False
-    if isinstance(val, (str, list, dict, tuple)) and len(val) == 0:
-        return False
-    if val == 0:
-        return False
-    return True
-
-
-def _literal(token: str, ctx: dict):
-    token = token.strip()
-    if len(token) >= 2 and token[0] == token[-1] and token[0] in "\"'":
-        return token[1:-1]
-    try:
-        return int(token)
-    except ValueError:
-        pass
-    try:
-        return float(token)
-    except ValueError:
-        pass
-    return _resolve(token, ctx)
-
-
-def _eval_cond(cond: str, ctx: dict) -> bool:
-    cond = cond.strip()
-    if cond.startswith("not "):
-        return not _is_truthy(_resolve(cond[4:].strip(), ctx))
-    for op in ("==", "!="):
-        if op in cond:
-            left, right = cond.split(op, 1)
-            lv, rv = _literal(left, ctx), _literal(right, ctx)
-            result = lv == rv
-            return result if op == "==" else not result
-    return _is_truthy(_resolve(cond, ctx))
-
-
-class _Text:
-    def __init__(self, s: str):
-        self.s = s
-
-    def render(self, ctx: dict) -> str:
-        return self.s
-
-
-class _Var:
-    def __init__(self, expr: str):
-        parts = _split_top(expr, "|")
-        self.name = parts[0].strip()
-        self.filters = [_parse_filter(p) for p in parts[1:]]
-
-    def render(self, ctx: dict) -> str:
-        val = _resolve(self.name, ctx)
-        if val is None:
-            val = ""
-        for fname, raw_args in self.filters:
-            fn = FILTERS.get(fname)
-            if fn is None:
-                raise ValueError("未知过滤器：%s" % fname)
-            args = [_literal(a, ctx) for a in raw_args]
-            val = fn(val, *args)
-        return "" if val is None else str(val)
-
-
-def _split_top(expr: str, sep: str) -> list:
-    """按分隔符切分，忽略引号与括号内的分隔符。"""
-    parts, buf = [], []
-    depth = 0
-    quote = None
-    for ch in expr:
-        if quote:
-            buf.append(ch)
-            if ch == quote:
-                quote = None
-        elif ch in "\"'":
-            quote = ch
-            buf.append(ch)
-        elif ch == "(":
-            depth += 1
-            buf.append(ch)
-        elif ch == ")":
-            depth -= 1
-            buf.append(ch)
-        elif ch == sep and depth == 0:
-            parts.append("".join(buf))
-            buf = []
-        else:
-            buf.append(ch)
-    parts.append("".join(buf))
-    return parts
-
-
-def _parse_filter(part: str) -> tuple:
-    part = part.strip()
-    m = re.match(r"^(\w+)(?:\((.*)\))?$", part, re.S)
-    if not m:
-        raise ValueError("过滤器语法错误：%s" % part)
-    args = []
-    if m.group(2) is not None and m.group(2).strip():
-        args = [a.strip() for a in _split_top(m.group(2), ",")]
-    return m.group(1), args
+    def get_source(self, environment, template):
+        src = self.fn(template)
+        if src is None:
+            raise TemplateNotFound(template)
+        return src, template, lambda: True
 
 
 def _f_date(value, fmt="%Y-%m-%d") -> str:
     s = str(value).strip()
-    for p in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d",
-              "%Y/%m/%d", "%Y-%m-%dT%H:%M:%S"):
+    for p in (
+        "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%d %H:%M",
+        "%Y-%m-%d",
+        "%Y/%m/%d",
+        "%Y-%m-%dT%H:%M:%S",
+    ):
         try:
             return datetime.strptime(s, p).strftime(str(fmt))
         except ValueError:
@@ -231,197 +47,40 @@ def _f_date(value, fmt="%Y-%m-%d") -> str:
     return s
 
 
-FILTERS = {
-    "upper": lambda v: str(v).upper(),
-    "lower": lambda v: str(v).lower(),
-    "title": lambda v: str(v).title(),
-    "capitalize": lambda v: str(v).capitalize(),
-    "trim": lambda v: str(v).strip(),
-    "escape": lambda v: html.escape(str(v)),
-    "striptags": lambda v: re.sub(r"<[^>]+>", "", str(v)),
-    "urlencode": lambda v: _urlquote(str(v), safe=""),
-    "length": lambda v: len(v) if hasattr(v, "__len__") else 0,
-    "join": lambda v, sep=", ": sep.join(str(x) for x in v)
-    if isinstance(v, (list, tuple)) else str(v),
-    "first": lambda v: v[0] if isinstance(v, (list, tuple)) and v else "",
-    "last": lambda v: v[-1] if isinstance(v, (list, tuple)) and v else "",
-    "default": lambda v, d="": v if _is_truthy(v) else d,
-    "replace": lambda v, old, new: str(v).replace(str(old), str(new)),
-    "date": _f_date,
-}
+def _make_env(templates) -> Environment:
+    if templates is None:
+        loader = DictLoader({})
+    elif isinstance(templates, dict):
+        loader = DictLoader(dict(templates))
+    elif callable(templates):
+        loader = _CallableLoader(templates)
+    else:
+        raise TypeError("templates 须为 dict、loader 可调用对象或 None")
+    env = Environment(
+        loader=loader,
+        autoescape=False,  # 页面内容是已生成的 HTML，不转义
+    )
+    env.filters["date"] = _f_date
+    return env
 
 
-def _f_truncate(value, n=100) -> str:
-    s = str(value)
+def render(template_str: str, ctx: dict, templates: dict | None = None) -> str:
+    """渲染模板字符串。模板错误统一转为 ValueError。"""
+    env = _make_env(templates)
     try:
-        n = int(n)
-    except (TypeError, ValueError):
-        n = 100
-    return s if len(s) <= n else s[:n].rstrip() + "…"
+        return env.from_string(template_str).render(dict(ctx or {}))
+    except RecursionError:
+        raise ValueError("模板嵌套过深或存在循环引用（超过 Python 递归限制）")
+    except TemplateError as e:
+        raise ValueError("模板错误：%s" % e)
 
 
-FILTERS["truncate"] = _f_truncate
-
-
-class _For:
-    def __init__(self, var: str, iter_name: str, body: list):
-        self.var = var
-        self.iter_name = iter_name
-        self.body = body
-
-    def render(self, ctx: dict) -> str:
-        seq = _resolve(self.iter_name, ctx)
-        try:
-            items = list(seq)
-        except TypeError:
-            return ""
-        out = []
-        for idx, item in enumerate(items):
-            child = dict(ctx)
-            child[self.var] = item
-            child["loop"] = {"index": idx + 1, "index0": idx}
-            out.append("".join(node.render(child) for node in self.body))
-        return "".join(out)
-
-
-class _If:
-    def __init__(self, branches: list):
-        # [(cond_str | None, body)]，cond 为 None 表示 else 分支
-        self.branches = branches
-
-    def render(self, ctx: dict) -> str:
-        for cond, body in self.branches:
-            if cond is None or _eval_cond(cond, ctx):
-                return "".join(node.render(ctx) for node in body)
-        return ""
-
-
-class _Block:
-    def __init__(self, name: str, body: list):
-        self.name = name
-        self.body = body
-
-    def render(self, ctx: dict) -> str:
-        override = ctx.get("__blocks__", {}).get(self.name)
-        body = override.body if override is not None else self.body
-        return "".join(node.render(ctx) for node in body)
-
-
-class _Include:
-    def __init__(self, name: str, loader):
-        self.name = name
-        self.loader = loader
-
-    def render(self, ctx: dict) -> str:
-        seen = ctx.get("__include_seen__", ())
-        if self.name in seen:
-            raise ValueError(
-                "模板 include 循环：%s" % " -> ".join([*seen, self.name])
-            )
-        src = self.loader(self.name)
-        if src is None:
-            raise ValueError("找不到被引入的模板：%s" % self.name)
-        extends, nodes, blocks = _parse_template(src, self.loader)
-        if extends is not None:
-            raise ValueError("被 include 的模板不能使用 extends：%s" % self.name)
-        child = dict(ctx)
-        child["__blocks__"] = blocks
-        child["__include_seen__"] = (*seen, self.name)
-        return "".join(node.render(child) for node in nodes)
-
-
-def _tag_keyword(inner: str) -> str:
-    parts = inner.split()
-    return parts[0] if parts else ""
-
-
-def _parse(
-    tokens: list,
-    pos: int,
-    stops: tuple,
-    blocks: dict,
-    loader,
-    _skip_extends: bool = False,
-) -> tuple[list, int]:
-    nodes: list = []
-    seen_tag = False
-    while pos < len(tokens):
-        tok = tokens[pos]
-        # 注意：切分后的文本块可能以 {{ 开头（如 "{{ x }" 未闭合），
-        # 必须是完整的标记（有开闭定界符）才按标签处理，否则按普通文本
-        if tok.startswith("{#") and tok.endswith("#}"):
-            seen_tag = True
-            pos += 1  # 注释：丢弃
-        elif tok.startswith("{{") and tok.endswith("}}"):
-            seen_tag = True
-            nodes.append(_Var(tok[2:-2].strip()))
-            pos += 1
-        elif tok.startswith("{%") and tok.endswith("%}"):
-            inner = tok[2:-2].strip()
-            kw = _tag_keyword(inner)
-            if kw in stops:
-                return nodes, pos
-            if kw == "extends":
-                if _skip_extends and not seen_tag:
-                    # 作为首个标签的 extends：已由 _parse_template 处理，这里跳过
-                    _skip_extends = False
-                    seen_tag = True
-                    pos += 1
-                    continue
-                raise ValueError("extends 必须为模板的第一个标签")
-            seen_tag = True
-            if inner.startswith("for "):
-                m = _FOR.match(inner)
-                if not m:
-                    raise ValueError("模板 for 语法错误：%s" % inner)
-                body, pos = _parse(tokens, pos + 1, ("endfor",), blocks, loader)
-                pos += 1  # 跳过 endfor
-                nodes.append(_For(m.group(1), m.group(2), body))
-            elif inner.startswith("if "):
-                branches = []
-                cond: str | None = inner[3:].strip()
-                seen_else = False
-                while True:
-                    body, pos = _parse(
-                        tokens, pos + 1, ("elif", "else", "endif"), blocks, loader
-                    )
-                    branches.append((cond, body))
-                    inner2 = tokens[pos][2:-2].strip()
-                    kw2 = _tag_keyword(inner2)
-                    if kw2 == "endif":
-                        pos += 1
-                        break
-                    if kw2 in ("elif", "else") and seen_else:
-                        raise ValueError("else 之后不能再出现 elif/else")
-                    if kw2 == "else":
-                        seen_else = True
-                        cond = None
-                    else:  # elif <cond>
-                        cond = inner2[len("elif"):].strip()
-                nodes.append(_If(branches))
-            elif kw == "block":
-                name = inner[len("block"):].strip()
-                if not name or not re.match(r"^\w+$", name):
-                    raise ValueError("block 语法错误：%s" % inner)
-                body, pos = _parse(tokens, pos + 1, ("endblock",), blocks, loader)
-                pos += 1  # 跳过 endblock
-                node = _Block(name, body)
-                if name not in blocks:
-                    blocks[name] = node
-                nodes.append(node)
-            elif kw == "include":
-                m = re.match(r"""include\s+["']([^"']+)["']$""", inner)
-                if not m:
-                    raise ValueError("include 语法错误：%s" % inner)
-                if loader is None:
-                    raise ValueError("include 需要提供 loader")
-                nodes.append(_Include(m.group(1), loader))
-                pos += 1
-            else:
-                raise ValueError("未知模板标签：%s" % inner)
-        else:
-            nodes.append(_Text(tok))
-            pos += 1
-    if stops:
-        raise ValueError("模板缺少结束标签：%s" % (stops,))
-    return nodes, pos
+def render_template(name: str, ctx: dict, templates: dict) -> str:
+    """按名称渲染模板（支持 extends/include 跨模板引用）。模板错误统一转为 ValueError。"""
+    env = _make_env(templates)
+    try:
+        return env.get_template(name).render(dict(ctx or {}))
+    except RecursionError:
+        raise ValueError("模板嵌套过深或存在循环引用（超过 Python 递归限制）")
+    except TemplateError as e:
+        raise ValueError("模板错误 [%s]：%s" % (name, e))

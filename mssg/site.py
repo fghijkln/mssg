@@ -516,7 +516,7 @@ class Site:
         tpl_name = str(page.get("template", "page.html"))
         ctx = self._ctx(page=page)
         if tpl_name in templates:
-            out = _tpl.render_template(tpl_name, ctx, templates.get)
+            out = _tpl.render_template(tpl_name, ctx, templates)
         else:
             out = _tpl.render(
                 "<!doctype html><html><head><meta charset=utf-8>"
@@ -548,7 +548,7 @@ class Site:
                 pagination=_pagination_ctx(i, total, prev_rel, next_rel),
             )
             if "index.html" in templates:
-                out = _tpl.render_template("index.html", ctx, templates.get)
+                out = _tpl.render_template("index.html", ctx, templates)
             else:
                 out = _tpl.render(_INDEX_FALLBACK, ctx)
             dest = output_dir / rel
@@ -611,7 +611,7 @@ class Site:
                     pagination=_pagination_ctx(i, total, prev_rel, next_rel),
                 )
                 if tpl_name in templates:
-                    out = _tpl.render_template(tpl_name, ctx, templates.get)
+                    out = _tpl.render_template(tpl_name, ctx, templates)
                 else:
                     out = _tpl.render(fallback, ctx)
                 dest = output_dir / rel
@@ -655,7 +655,7 @@ class Site:
         ]
         ctx = self._ctx(groups=ordered)
         if "archive.html" in templates:
-            out = _tpl.render_template("archive.html", ctx, templates.get)
+            out = _tpl.render_template("archive.html", ctx, templates)
         else:
             out = _tpl.render(_ARCHIVE_FALLBACK, ctx)
         dest = output_dir / "archive.html"
@@ -943,7 +943,8 @@ def new_site(name: str | Path) -> Path:
     (root / "content" / "hello.md").write_text(
         "---\ntitle: 你好，世界\ndate: 2026-10-02\ntags: [mssg, 示例]\n---\n\n"
         "# 你好，世界\n\n这是用 **mssg** 生成的第一篇文章。\n\n"
-        "- 零依赖，只用 Python 标准库\n- 自研 Markdown 解析器\n- 自研模板引擎\n\n"
+        "- Markdown（含表格、脚注、代码高亮）\n- Jinja2 模板（继承、循环、过滤器）\n- YAML front matter\n\n"
+        "```python\nprint(\"你好，mssg\")\n```\n\n"
         "> 纸上得来终觉浅，绝知此事要躬行。\n",
         encoding="utf-8",
     )
@@ -958,6 +959,12 @@ def new_site(name: str | Path) -> Path:
         "font-family:serif;line-height:1.8;color:#222}\n"
         "a{color:#0645ad}\n.meta{color:#888;font-size:.9em}\n"
         "pre{background:#f4f4f4;padding:1em;overflow:auto}\n"
+        ".codehilite{background:#f4f4f4;padding:.2em 1em;overflow:auto}\n"
+        ".codehilite .k,.codehilite .kn{color:#008000;font-weight:bold}\n"
+        ".codehilite .s,.codehilite .s1,.codehilite .s2{color:#ba2121}\n"
+        ".codehilite .c,.codehilite .c1,.codehilite .cm{color:#408080;font-style:italic}\n"
+        ".codehilite .nb,.codehilite .nf{color:#06287e}\n"
+        ".codehilite .mi,.codehilite .mf,.codehilite .o{color:#666}\n"
         "code{background:#f4f4f4;padding:0 .3em}\n"
         "pre code{background:none;padding:0}\n"
         "table{border-collapse:collapse}\n"

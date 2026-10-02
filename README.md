@@ -1,16 +1,14 @@
 # mssg
 
-极简零依赖静态站点生成器。Markdown 解析器、模板引擎、front matter 解析全部自研，只用 Python 标准库，不装任何第三方包。
+基于 Python-Markdown、Jinja2、PyYAML、Pygments 的静态站点生成器。
+只做薄封装：Markdown 渲染、模板引擎、front matter 解析全部交给
+久经考验的第三方库，mssg 自己只负责站点构建流程（增量构建、标签/
+分类/归档、分页、feed、sitemap、文件监听）。
 
 ## 安装
 
-需要 Python 3.11+（用了标准库 `tomllib`）。
-
-```bash
-pip install .
-# 或者直接用源码
-python -m mssg.cli new my-site
-```
+需要 Python 3.11+。`pip install .` 会自动安装依赖
+（Markdown、Jinja2、PyYAML、Pygments）。
 
 ## 快速开始
 
@@ -50,8 +48,9 @@ template: page.html
 正文……
 ```
 
-front matter 支持字符串、整数、浮点数、布尔、`[a, b]` 行内列表与 `- ` 多行列表；
-行尾注释会被剥离（引号内、`a#b` 这种无空白的不算注释）。
+front matter 是完整 YAML（PyYAML 解析），支持嵌套结构、多行字符串、
+日期自动识别等。注意 `date: 2026-10-02` 会被解析为日期对象，
+模板里用 `{{ page.date }}` 输出时已转回字符串。
 
 ## 配置参考（mssg.toml）
 
@@ -83,32 +82,53 @@ per_page = 0                # 首页/标签页每页篇数；0 为不分页
 ```bash
 mssg new <目录>              # 生成站点脚手架（非空目录拒绝覆盖）
 mssg new post <slug> [-t 标题]  # 在 content/ 下新建文章（已存在则拒绝覆盖）
+mssg post <slug> [-t 标题]      # 同上，兼容别名
 mssg build [--force] [--drafts] [-c mssg.toml]
 mssg serve [--port 8000] [--drafts] [--no-watch] [-c mssg.toml]
 mssg clean [-c mssg.toml]       # 清空构建输出目录（指向站点根时拒绝执行）
 mssg --version
 ```
 
-## Markdown 支持（自研子集）
+## Markdown（Python-Markdown）
 
-ATX 标题、段落、`**粗体**`、`*斜体*`、`` `行内代码` ``、`[链接](url)`、
-`![图片](url)`、无序/有序列表（支持嵌套）、`>` 引用、```` ``` ```` 围栏代码块、
-`---` 分隔线、简单表格（支持 `:---:` / `:---` / `---:` 列对齐）。
+完整 Markdown 语法，外加扩展：
 
-## 模板语法（自研）
+- `extra`：表格（支持 `:---:` / `:---` / `---:` 列对齐）、脚注、定义列表等
+- `codehilite`：Pygments 代码高亮（输出 `<div class="codehilite">`，
+  脚手架 `style.css` 自带一套配色）
+- `toc`：h1–h6 自动生成锚点 `id`（中文保留，如 `<h2 id="章节标题">`），
+  供 `page.toc`（h2/h3 列表，每项有 level/text/id）跳转
+- `sane_lists`：更符合直觉的列表解析
 
-- `{{ name }}` / `{{ page.title }}` —— 变量，支持点号取值，缺失则为空
-- `{% for p in pages %} ... {% endfor %}` —— 循环，体内可用 `loop.index` / `loop.index0`
-- `{% if x %} ... {% elif y %} ... {% else %} ... {% endif %}` —— 条件，
-  支持 `not x`、`a == b`、`a != b`
-- `{# ... #}` —— 注释
+行内 HTML 原样通过（`<!--more-->` 摘要标记依赖它）。
+
+## 模板（Jinja2）
+
+标准 Jinja2 语法（`{{ }}` / `{% %}` / `{# #}`），自动转义关闭
+（`page.content` 是已生成的 HTML）：
+
+- `{{ name }}` / `{{ page.title }}` —— 变量，缺失则为空
+- `{% for p in pages %} ... {% endfor %}` —— 循环，
+  体内可用 `loop.index` / `loop.index0` / `loop.first` / `loop.last` 等
+- `{% if x %} ... {% elif y %} ... {% else %} ... {% endif %}` —— 条件
 - `{% extends "base.html" %}` + `{% block name %} ... {% endblock %}` —— 模板继承
-  （extends 必须为模板的第一个标签；子模板的 block 覆盖父模板；支持多级继承）
-- `{% include "part.html" %}` —— 引入模板片段（使用当前上下文；被引入的模板不能用 extends）
-- 过滤器：`{{ name|upper }}`，支持链式 `{{ x|default("n/a")|upper }}`；
-  共 15 个：upper/lower/title/capitalize/trim/escape/striptags/urlencode/
-  length/join/first/last/default(x)/replace(a,b)/truncate(n)/date(fmt)
-  （如 `{{ p.date|date("%Y年%m月%d日") }}`）
+- `{% include "part.html" %}` —— 引入模板片段（使用当前上下文）
+- 过滤器：Jinja2 内建全部可用，支持链式 `{{ x|striptags|trim }}`；
+  mssg 额外注册 `date`：`{{ p.date|date("%Y年%m月%d日") }}`
+
+注意 Jinja2 语义（与旧自研引擎不同）：
+
+- `default` 只对**未定义**变量生效，空字符串想走默认值用
+  `{{ n|default("n/a", true) }}`
+- `truncate(n)` 默认 `leeway=5`，短串不截断；精确截断用
+  `{{ n|truncate(5, true, "…", 0) }}`
+- `join` 无参数时分隔符为空串（`{{ xs|join(", ") }}` 加分隔符）
+- `urlencode` 保留 `/`（按查询串语义编码）
+- 字典的键若与方法名冲突（如 `items`），点号会取到方法；
+  用下标取值：`{{ data.links["items"] }}`
+
+模板错误（语法错误、模板不存在、循环引用等）统一转为 `ValueError`，
+构建失败时会报出出问题的页面文件名。
 
 模板可用变量：`site`（配置）、`data`（`data/` 下 .json/.toml 数据文件）、
 `page`（当前页面：title/date/content/url/summary/summary_text/toc + front matter
@@ -165,11 +185,12 @@ python -m unittest discover -s tests
 - [x] Atom 输出（feed.xml）
 - [x] `serve` 的文件监听自动重建
 - [x] sitemap.xml
-- [x] 模板过滤器（15 个，支持链式）
+- [x] 模板过滤器（Jinja2 内建全部 + `date`，支持链式）
 - [x] 文章摘要（`<!--more-->` / 首段 fallback）
 - [x] 分类页、RSS 2.0、robots.txt、页面 TOC
 - [x] 数据文件（`data/` → 模板变量）
 - [x] 并行构建、`mssg new post` 文章脚手架
+- [x] 第三方库迁移（Python-Markdown / Jinja2 / PyYAML / Pygments，0.4.0）
 
 后续想法：
 

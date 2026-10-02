@@ -1,6 +1,33 @@
 # 更新日志
 
-## 0.3.0（2026-10-02）
+## 0.4.0（2026-10-02）
+
+架构转向：不再追求零依赖。Markdown 渲染、模板引擎、front matter
+解析改用久经考验的第三方库，mssg 只做薄封装，维护负担大幅下降。
+
+### 变更
+
+- Markdown：自研子集解析器 → Python-Markdown（`extra`/`codehilite`/
+  `toc`/`sane_lists` 扩展）。新增：完整 Markdown 语法、脚注、
+  Pygments 代码高亮、h1–h6 全部带锚点 id、行内 HTML 原样通过
+- 模板：自研引擎 → Jinja2。新增：`loop.first`/`loop.last` 等循环变量、
+  宏、空白控制等全部 Jinja2 能力；mssg 只额外注册 `date` 过滤器。
+  模板错误统一转为 `ValueError`（构建失败报出页面文件名不变）
+- front matter：自研子集 → PyYAML 完整 YAML（嵌套、多行字符串等）
+- 脚手架：示例文章展示代码高亮；`style.css` 内置一套 codehilite 配色
+- `mssg new post <slug>` 正式实现（之前文档写了但没实现）；
+  顶层 `mssg post` 保留为兼容别名
+
+### 语义变化（Jinja2 标准语义）
+
+- `default` 只对未定义变量生效；空串走默认值请用 `default("n/a", true)`
+- `truncate(n)` 默认 leeway=5，短串不截断
+- `join` 无参数时分隔符为空串
+- 字典键与方法名冲突时（如 `items`），点号取到方法，请用 `data.links["items"]`
+
+### 依赖
+
+Markdown、Jinja2、PyYAML、Pygments（`pip install .` 自动安装）。
 
 生产级特性补完。零依赖铁律不变：只用 Python 标准库。
 

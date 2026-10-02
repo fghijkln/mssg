@@ -163,13 +163,20 @@ def _bounded_fuzz(n_cases: int = 300, timeout_s: int = 45) -> list[tuple[str, st
         if time.time() > deadline:
             break
         s = "".join(rng.choice(alphabet) for _ in range(rng.randint(0, 400)))
-        for fn in (md.parse, lambda t: tpl.render(t, {"a": 1, "x": {"y": [1]}})):
+        cases = (
+            ("md", lambda t: md.parse(t), ()),
+            # 模板语法错误是预期的（ValueError），只有非预期异常才算崩溃
+            ("tpl", lambda t: tpl.render(t, {"a": 1, "x": {"y": [1]}}), (ValueError,)),
+        )
+        for label, fn, expected in cases:
             try:
                 fn(s)
             except (RecursionError, MemoryError):
-                crashes.append((f"case{i}", "RecursionError/MemoryError"))
+                crashes.append((f"{label}{i}", "RecursionError/MemoryError"))
+            except expected:
+                pass
             except Exception:
-                crashes.append((f"case{i}", traceback.format_exc()))
+                crashes.append((f"{label}{i}", traceback.format_exc()))
             if len(crashes) >= 10:
                 return crashes
     return crashes

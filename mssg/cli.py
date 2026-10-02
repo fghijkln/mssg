@@ -15,9 +15,9 @@ from pathlib import Path
 from .site import Site, new_site
 
 
-def _cmd_new(args) -> int:
+def _cmd_new(args) -> int:  # args.target 即站点目录名
     try:
-        root = new_site(args.name)
+        root = new_site(args.target)
     except OSError as e:
         print("错误：%s" % e)
         return 1
@@ -97,6 +97,16 @@ def _watch_and_rebuild(site: Site, args, stop_event: threading.Event) -> None:
         except Exception as e:  # noqa: BLE001
             # 构建失败（如模板语法错误）不退出，继续监听等用户修复
             print("[%s] 构建失败：%s（继续监听）" % (now, e), flush=True)
+
+
+def _cmd_new_dispatch(args) -> int:
+    """mssg new 分发：new <name> 建站；new post <slug> 新建文章。"""
+    if args.target == "post":
+        if not args.slug:
+            print("错误：用法：mssg new post <slug> [-t 标题]")
+            return 1
+        return _cmd_post(args)
+    return _cmd_new(args)
 
 
 def _cmd_post(args) -> int:
@@ -188,16 +198,21 @@ def main() -> int:
     from . import __version__
 
     parser = argparse.ArgumentParser(
-        prog="mssg", description="极简零依赖静态站点生成器"
+        prog="mssg", description="静态站点生成器（Python-Markdown + Jinja2）"
     )
     parser.add_argument(
         "-V", "--version", action="version", version="mssg %s" % __version__
     )
     sub = parser.add_subparsers(dest="cmd", required=True)
 
-    p_new = sub.add_parser("new", help="新建站点脚手架")
-    p_new.add_argument("name", help="站点目录名")
-    p_new.set_defaults(func=_cmd_new)
+    p_new = sub.add_parser("new", help="新建站点脚手架；mssg new post 新建文章")
+    p_new.add_argument("target", help="站点目录名，或 post（新建文章）")
+    p_new.add_argument("slug", nargs="?", help="（new post 时）文章文件名（不含 .md）")
+    p_new.add_argument("-t", "--title", default="", help="（new post 时）文章标题（默认用 slug）")
+    p_new.add_argument(
+        "-c", "--config", default="mssg.toml", help="配置文件路径（默认 mssg.toml）"
+    )
+    p_new.set_defaults(func=_cmd_new_dispatch)
 
     p_build = sub.add_parser("build", help="构建站点")
     p_build.add_argument(
