@@ -11,6 +11,8 @@ Token 权限：Cloudflare Pages → Edit（在
 https://dash.cloudflare.com/profile/api-tokens 创建自定义 Token）。
 """
 
+import base64
+import hashlib
 import json
 import mimetypes
 import os
@@ -131,17 +133,73 @@ class _DoHHTTPSHandler(urllib.request.HTTPSHandler):
         return self.do_open(_sni_conn_class(self._ip_map), req, context=ctx)
 
 
-def _raw_req(token, method, path, data, content_type, timeout, opener=None):
+def _direct_call(method, path, headers, body, timeout, opener=None):
     url = API_BASE + path
-    headers = {"Authorization": "Bearer " + token}
-    if content_type:
-        headers["Content-Type"] = content_type
-    req = urllib.request.Request(url, data=data, headers=headers, method=method)
+    req = urllib.request.Request(url, data=body, headers=headers, method=method)
     if opener is None:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
-            return json.loads(resp.read().decode("utf-8"))
+            return resp.status, json.loads(resp.read().decode("utf-8"))
     with opener.open(req, timeout=timeout) as resp:
-        return json.loads(resp.read().decode("utf-8"))
+        return resp.status, json.loads(resp.read().decode("utf-8"))
+
+
+def _call(method, path, headers, body=None, timeout=30):
+    """底层调用，返回 (status, parsed_json)。
+
+    连接失败时自动兜底：DoH（普通域名→直连 IP）→ 备用传输通道
+    （如 App 内 WebView）。HTTPError 直接透出给调用方处理。
+    """
+    try:
+        return _direct_call(method, path, headers, body, timeout)
+    except urllib.error.HTTPError:
+        raise
+    except urllib.error.URLError as e:
+        if _is_dns_error(e):
+            try:
+                ip = _doh_resolve(API_HOST)
+                opener = urllib.request.build_opener(
+                    _DoHHTTPSHandler({API_HOST: ip})
+                )
+                return _direct_call(method, path, headers, body, timeout, opener)
+            except urllib.error.HTTPError:
+                raise
+            except CloudflareError:
+                raise
+            except Exception:
+                pass
+        if _transport is not None:
+            try:
+                status, raw = _transport(
+                    method, API_BASE + path, dict(headers), body, timeout
+                )
+                try:
+                    return status, json.loads(raw.decode("utf-8"))
+                except Exception:
+                    raise CloudflareError("备用通道返回了非 JSON 数据")
+            except CloudflareError:
+                raise
+            except Exception as e2:
+                raise CloudflareError("备用通道也失败：%s" % e2)
+        raise CloudflareError("网络错误：%s" % e.reason)
+
+
+def _http_error_to_ce(e):
+    try:
+        body = json.loads(e.read().decode("utf-8"))
+    except Exception:
+        body = {}
+    msgs = "; ".join(
+        err.get("message", str(err)) for err in body.get("errors", [])
+    ) or ("HTTP %d" % e.code)
+    return CloudflareError("Cloudflare API 错误：%s" % msgs)
+
+
+def _raise_for_status(status, payload):
+    if status >= 400:
+        msgs = "; ".join(
+            err.get("message", str(err)) for err in payload.get("errors", [])
+        ) or ("HTTP %d" % status)
+        raise CloudflareError("Cloudflare API 错误：%s" % msgs)
 
 
 def _req(token, method, path, data=None, content_type=None, timeout=30):
@@ -149,57 +207,26 @@ def _req(token, method, path, data=None, content_type=None, timeout=30):
     if content_type:
         headers["Content-Type"] = content_type
     try:
-        return _raw_req(token, method, path, data, content_type, timeout)
+        status, payload = _call(method, path, headers, data, timeout)
     except urllib.error.HTTPError as e:
-        try:
-            body = json.loads(e.read().decode("utf-8"))
-        except Exception:
-            body = {}
-        msgs = "; ".join(
-            err.get("message", str(err)) for err in body.get("errors", [])
-        ) or ("HTTP %d" % e.code)
-        raise CloudflareError("Cloudflare API 错误：%s" % msgs)
-    except urllib.error.URLError as e:
-        if _is_dns_error(e):
-            # 系统 DNS 坏了：DoH 拿 IP 直连再试一次
-            try:
-                ip = _doh_resolve(API_HOST)
-                opener = urllib.request.build_opener(
-                    _DoHHTTPSHandler({API_HOST: ip})
-                )
-                return _raw_req(
-                    token, method, path, data, content_type, timeout, opener
-                )
-            except CloudflareError:
-                raise
-            except Exception:
-                pass
-        # 最后一招：经备用传输通道（如 App 内 WebView 的 Chromium 网络栈）
-        if _transport is not None:
-            try:
-                status, raw = _transport(
-                    method, API_BASE + path, dict(headers), data, timeout
-                )
-                try:
-                    payload = json.loads(raw.decode("utf-8"))
-                except Exception:
-                    payload = {}
-                if status >= 400:
-                    msgs = "; ".join(
-                        err.get("message", str(err))
-                        for err in payload.get("errors", [])
-                    ) or ("HTTP %d" % status)
-                    raise CloudflareError("Cloudflare API 错误：%s" % msgs)
-                if not payload.get("success", True):
-                    raise CloudflareError(
-                        "Cloudflare API 错误：%s" % payload
-                    )
-                return payload
-            except CloudflareError:
-                raise
-            except Exception as e2:
-                raise CloudflareError("备用通道也失败：%s" % e2)
-        raise CloudflareError("网络错误：%s" % e.reason)
+        raise _http_error_to_ce(e)
+    _raise_for_status(status, payload)
+    return payload
+
+
+def _jreq(auth, method, path, obj=None, timeout=60):
+    """JSON 接口（用于 JWT 凭证的 assets 系列接口）。"""
+    body = json.dumps(obj).encode("utf-8") if obj is not None else None
+    try:
+        status, payload = _call(
+            method, path,
+            {"Authorization": auth, "Content-Type": "application/json"},
+            body, timeout,
+        )
+    except urllib.error.HTTPError as e:
+        raise _http_error_to_ce(e)
+    _raise_for_status(status, payload)
+    return payload
 
 
 def _check(payload, action):
@@ -310,15 +337,110 @@ def collect_files(public_dir):
     return out
 
 
-def create_deployment(token, account_id, project, files):
-    """上传文件并创建部署，返回 deployment dict。"""
-    body, ctype = _encode_multipart(files)
+def _file_hash(data: bytes, filename: str) -> str:
+    """内容哈希（32 位 hex）：sha256(base64(内容) + 扩展名)。
+
+    服务端把哈希当不透明指纹用，只要同一次部署内一致即可。
+    """
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    b64 = base64.b64encode(data).decode("ascii")
+    return hashlib.sha256((b64 + ext).encode("utf-8")).hexdigest()[:32]
+
+
+def get_upload_token(token, account_id, project):
+    """取文件上传用的 JWT 凭证。"""
+    payload = _req(
+        token, "GET",
+        "/accounts/%s/pages/projects/%s/upload-token" % (account_id, project),
+    )
+    return _check(payload, "获取上传凭证")["jwt"]
+
+
+def assets_check_missing(jwt, hashes):
+    """返回服务端还没有的哈希列表。"""
+    payload = _jreq("Bearer " + jwt, "POST", "/pages/assets/check-missing",
+                    {"hashes": hashes})
+    return _check(payload, "检查缺失文件")
+
+
+def assets_upload(jwt, items):
+    """items: [(hash, base64内容, content_type)]。"""
+    body = [
+        {"key": h, "value": b64, "metadata": {"contentType": ct}, "base64": True}
+        for h, b64, ct in items
+    ]
+    payload = _jreq("Bearer " + jwt, "POST", "/pages/assets/upload", body,
+                    timeout=120)
+    return _check(payload, "上传文件")
+
+
+def assets_upsert_hashes(jwt, hashes):
+    payload = _jreq("Bearer " + jwt, "POST", "/pages/assets/upsert-hashes",
+                    {"hashes": hashes})
+    return _check(payload, "确认文件")
+
+
+def create_deployment(token, account_id, project, manifest):
+    """用 manifest（{"/路径": 哈希}）创建部署；文件已在之前传完。"""
+    body, ctype = _encode_multipart([
+        ("manifest", None, "application/json",
+         json.dumps(manifest).encode("utf-8")),
+    ])
     payload = _req(
         token, "POST",
         "/accounts/%s/pages/projects/%s/deployments" % (account_id, project),
         data=body, content_type=ctype, timeout=120,
     )
     return _check(payload, "创建部署")
+
+
+def deploy_directory(token, account_id, project, public_dir,
+                     on_progress=None):
+    """一键部署 public/ 目录。返回 {"url", "project_url", "deployment_id"}。
+
+    协议（同 wrangler）：文件按内容哈希上传 → 发 manifest 建部署。
+    on_progress(step:str) 可选回调：collect/upload/wait/done。
+    """
+    if on_progress:
+        on_progress("collect")
+    files = collect_files(public_dir)
+    hashed = [
+        (_file_hash(data, name), rel, name, ctype, data)
+        for rel, name, ctype, data in files
+    ]
+    manifest = {rel: h for h, rel, _n, _c, _d in hashed}
+
+    if on_progress:
+        on_progress("upload")
+    jwt = get_upload_token(token, account_id, project)
+    auth = "Bearer " + jwt
+    hashes = [h for h, _r, _n, _c, _d in hashed]
+    missing = set(assets_check_missing(auth, hashes))
+
+    batch, batch_size = [], 0
+    for h, rel, name, ctype, data in hashed:
+        if h not in missing:
+            continue
+        b64 = base64.b64encode(data).decode("ascii")
+        if batch and (len(batch) >= 500
+                      or batch_size + len(b64) > 20 * 1024 * 1024):
+            assets_upload(auth, batch)
+            batch, batch_size = [], 0
+        batch.append((h, b64, ctype))
+        batch_size += len(b64)
+    if batch:
+        assets_upload(auth, batch)
+    assets_upsert_hashes(auth, hashes)
+
+    if on_progress:
+        on_progress("wait")
+    dep = create_deployment(token, account_id, project, manifest)
+    dep_id = dep.get("id") or dep.get("uid")
+    dep = wait_for_deployment(token, account_id, project, dep_id)
+    url, project_url = deployment_urls(dep, project)
+    if on_progress:
+        on_progress("done")
+    return {"url": url, "project_url": project_url, "deployment_id": dep_id}
 
 
 def get_deployment(token, account_id, project, deployment_id):
@@ -354,25 +476,3 @@ def deployment_urls(deployment, project):
     if url and not url.startswith("http"):
         url = "https://" + url
     return url, "https://%s.pages.dev" % project
-
-
-def deploy_directory(token, account_id, project, public_dir,
-                     on_progress=None):
-    """一键部署 public/ 目录。返回 {"url", "project_url", "deployment_id"}。
-
-    on_progress(step:str) 可选回调：collect/upload/wait/done。
-    """
-    if on_progress:
-        on_progress("collect")
-    files = collect_files(public_dir)
-    if on_progress:
-        on_progress("upload")
-    dep = create_deployment(token, account_id, project, files)
-    dep_id = dep.get("id") or dep.get("uid")
-    if on_progress:
-        on_progress("wait")
-    dep = wait_for_deployment(token, account_id, project, dep_id)
-    url, project_url = deployment_urls(dep, project)
-    if on_progress:
-        on_progress("done")
-    return {"url": url, "project_url": project_url, "deployment_id": dep_id}

@@ -1,5 +1,17 @@
 # 更新日志
 
+## 0.13.4（2026-10-02）
+
+修部署接口要求 manifest 字段（`A "manifest" field was expected`）：
+
+- 上传改走 wrangler 同款协议：文件按内容哈希（sha256 base64+扩展名，
+  取 32 位）经 JWT 凭证上传（check-missing → upload → upsert-hashes），
+  再发 manifest（{"/路径": 哈希}）创建部署
+- 未改动的文件服务端按哈希去重，重复部署更快
+- HTTP 层重构为 `_call`（返回 status+JSON），DoH/WebView 兜底对
+  JWT 系列接口同样生效
+
+## 
 ## 0.13.3（2026-10-02）
 
 修 Token 有效但 `/accounts` 返回空列表导致连接失败：

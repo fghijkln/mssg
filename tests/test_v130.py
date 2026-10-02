@@ -15,8 +15,9 @@ from mssg import cloudflare as cf
 
 
 class _FakeResp:
-    def __init__(self, payload):
+    def __init__(self, payload, status=200):
         self._data = json.dumps(payload).encode("utf-8")
+        self.status = status
 
     def read(self):
         return self._data
@@ -101,22 +102,43 @@ class TestCloudflare(unittest.TestCase):
         self.assertTrue(any("projects/acc" in u or "/projects" in u for u in calls))
 
     def test_deploy_directory_flow(self):
+        """完整新协议：upload-token → 传文件 → manifest 建部署 → 轮询。"""
         seen = {}
 
-        def fake_urlopen(req, timeout=30):
+        def fake_urlopen(req, timeout=30, context=None):
             url = req.full_url
+            ctype = req.headers.get("Content-type", "")
+            body = (req.data and "json" in ctype
+                    and json.loads(req.data.decode("utf-8")))
+            if url.endswith("/upload-token"):
+                return _FakeResp(
+                    {"success": True, "result": {"jwt": "jwt123"}})
+            if url.endswith("/check-missing"):
+                seen["hashes"] = body["hashes"]
+                return _FakeResp(
+                    {"success": True, "result": body["hashes"]})
+            if url.endswith("/assets/upload"):
+                seen["uploaded"] = [it["key"] for it in body]
+                return _FakeResp({"success": True, "result": []})
+            if url.endswith("/upsert-hashes"):
+                seen["upserted"] = True
+                return _FakeResp({"success": True, "result": []})
             if url.endswith("/deployments") and req.method == "POST":
-                seen["body"] = req.data
                 seen["ctype"] = req.headers.get("Content-type")
-                return _ok({"id": "dep1", "url": "abc.p.pages.dev"})
+                # multipart 里必须有 manifest 字段
+                self.assertIn(b'name="manifest"', req.data)
+                return _FakeResp(
+                    {"success": True,
+                     "result": {"id": "dep1", "url": "abc.p.pages.dev"}})
             if "/deployments/dep1" in url:
-                return _ok(
-                    {
-                        "id": "dep1",
-                        "url": "abc.p.pages.dev",
-                        "latest_stage": {"name": "deploy", "status": "success"},
-                    }
-                )
+                return _FakeResp(
+                    {"success": True,
+                     "result": {
+                         "id": "dep1",
+                         "url": "abc.p.pages.dev",
+                         "latest_stage": {"name": "deploy",
+                                          "status": "success"},
+                     }})
             raise AssertionError("unexpected " + url)
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -129,9 +151,18 @@ class TestCloudflare(unittest.TestCase):
         self.assertEqual(out["project_url"], "https://p.pages.dev")
         self.assertEqual(out["url"], "https://abc.p.pages.dev")
         self.assertEqual(out["deployment_id"], "dep1")
-        # multipart 字段名带前导斜杠
-        self.assertIn(b'name="/index.html"', seen["body"])
+        self.assertEqual(len(seen["hashes"]), 1)
+        self.assertEqual(seen["uploaded"], seen["hashes"])
+        self.assertTrue(seen["upserted"])
         self.assertIn("multipart/form-data", seen["ctype"])
+
+    def test_file_hash_stable(self):
+        h1 = cf._file_hash(b"hello", "index.html")
+        h2 = cf._file_hash(b"hello", "index.html")
+        h3 = cf._file_hash(b"hello!", "index.html")
+        self.assertEqual(h1, h2)
+        self.assertNotEqual(h1, h3)
+        self.assertEqual(len(h1), 32)
 
     def test_wait_failure_raises(self):
         with mock.patch.object(
