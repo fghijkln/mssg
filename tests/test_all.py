@@ -534,6 +534,50 @@ class TestBuild(unittest.TestCase):
             css = root / "public" / "style.css"
             self.assertTrue(css.exists())
 
+    def test_kitchen_sink(self):
+        # 综合：分页+中文标签+草稿+实体+表格+自定义首页，一次构建全验证
+        with tempfile.TemporaryDirectory() as tmp:
+            root = new_site(os.path.join(tmp, "demo"))
+            toml = (root / "mssg.toml").read_text(encoding="utf-8")
+            (root / "mssg.toml").write_text(
+                toml.replace("# per_page = 5", "per_page = 1"), encoding="utf-8"
+            )
+            for i in range(3):
+                (root / "content" / ("p%d.md" % i)).write_text(
+                    "---\ntitle: 文章%d\ndate: 2026-01-0%d\ntags: [中文, t]\n---\n\n"
+                    "# 标题%d\n\nA &amp; B\n\n| a | b |\n|---|---|\n| 1 | 2 |\n"
+                    % (i, i + 1, i),
+                    encoding="utf-8",
+                )
+            (root / "content" / "d.md").write_text(
+                "---\ntitle: 草稿\ndate: 2026-01-01\ndraft: true\n---\n\nx\n",
+                encoding="utf-8",
+            )
+            (root / "content" / "index.md").write_text(
+                "---\ntitle: 首页\ndate: 2026-01-10\n---\n\n# 欢迎\n", encoding="utf-8"
+            )
+            result = Site(root).build()
+            # 3 文章 + 1 示例 + 1 首页 = 5（草稿排除）
+            self.assertEqual(result["pages"], 5)
+            pub = root / "public"
+            # 自定义首页
+            self.assertIn("欢迎", (pub / "index.html").read_text(encoding="utf-8"))
+            # 中文标签页可访问
+            self.assertTrue((pub / "tags" / "中文.html").exists())
+            # 草稿无残留
+            all_text = " ".join(
+                p.read_text(encoding="utf-8") for p in pub.rglob("*.html")
+            )
+            self.assertNotIn("草稿", all_text)
+            # 实体不双重转义
+            p0 = (pub / "p0.html").read_text(encoding="utf-8")
+            self.assertNotIn("&amp;amp;", p0)
+            # 表格正常
+            self.assertIn("<table>", p0)
+            # feed/sitemap/archive 齐全
+            for f in ["feed.xml", "sitemap.xml", "archive.html"]:
+                self.assertTrue((pub / f).exists())
+
     def test_incremental(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = new_site(os.path.join(tmp, "demo"))
