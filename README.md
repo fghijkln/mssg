@@ -78,6 +78,7 @@ ATX 标题、段落、`**粗体**`、`*斜体*`、`` `行内代码` ``、`[链�
 - 归档页：自动生成 `archive.html`，按年月分组
   （模板 `archive.html`，变量：`groups`，每组有 `ym` 与 `pages`）
 - Atom 订阅：自动生成 `feed.xml`（最近 20 篇），`[build] feed = false` 可关闭
+- 站点地图：自动生成 `sitemap.xml`，`[build] sitemap = false` 可关闭
 
 ## 测试
 

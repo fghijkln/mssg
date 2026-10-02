@@ -190,6 +190,13 @@ class Site:
         elif cache.get("feed_files"):
             self._clean_stale(output_dir, cache.pop("feed_files"), set())
 
+        if b.get("sitemap", True):
+            sm_rel = self._render_sitemap(pages, output_dir, rebuilt_any)
+            self._clean_stale(output_dir, cache.get("sitemap_files", []), {sm_rel})
+            cache["sitemap_files"] = [sm_rel]
+        elif cache.get("sitemap_files"):
+            self._clean_stale(output_dir, cache.pop("sitemap_files"), set())
+
         if static_dir.is_dir():
             new_static = set()
             for sp in sorted(static_dir.rglob("*")):
@@ -378,6 +385,37 @@ class Site:
         if rebuilt_any or not dest.exists():
             dest.write_text(out, encoding="utf-8")
         return "feed.xml"
+
+    def _render_sitemap(self, pages: list, output_dir: Path, rebuilt_any: bool) -> str:
+        """生成 sitemap.xml，返回相对路径。"""
+        base = self.cfg["site"].get("base_url", "").rstrip("/")
+
+        def abs_url(rel: str) -> str:
+            return (base + "/" + rel) if base else "/" + rel
+
+        entries = []
+        if pages:
+            entries.append(("index.html", pages[0]["date"]))
+        for p in pages:
+            entries.append((p["url"], p["date"]))
+        lines = [
+            '<?xml version="1.0" encoding="utf-8"?>',
+            '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
+        ]
+        for rel, date in entries:
+            lines.extend(
+                [
+                    "  <url>",
+                    "    <loc>%s</loc>" % _xml_escape(abs_url(rel)),
+                    "    <lastmod>%s</lastmod>" % _xml_escape(str(date)[:10]),
+                    "  </url>",
+                ]
+            )
+        lines.append("</urlset>")
+        dest = output_dir / "sitemap.xml"
+        if rebuilt_any or not dest.exists():
+            dest.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        return "sitemap.xml"
 
     @staticmethod
     def _clean_stale(output_dir: Path, old_files: list, made: set) -> None:

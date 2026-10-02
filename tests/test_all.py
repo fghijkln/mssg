@@ -417,6 +417,19 @@ class TestBuild(unittest.TestCase):
             index = (root / "public" / "index.html").read_text(encoding="utf-8")
             self.assertIn("新标题", index)
 
+    def test_sitemap(self):
+        import xml.dom.minidom
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = new_site(os.path.join(tmp, "demo"))
+            Site(root).build()
+            sm = root / "public" / "sitemap.xml"
+            self.assertTrue(sm.exists())
+            xml.dom.minidom.parse(str(sm))  # 合法 XML
+            text = sm.read_text(encoding="utf-8")
+            self.assertIn("hello.html", text)
+            self.assertIn("<lastmod>2026-10-02</lastmod>", text)
+
 
 if __name__ == "__main__":
     unittest.main()
