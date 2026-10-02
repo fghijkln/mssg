@@ -74,3 +74,15 @@
 - 测试 43/43 全绿；端到端验证脚手架构建正常（标题 block 覆盖、页脚继承）；fuzz 种子 31337，2000 用例 0 问题。
 - README 补充继承语法说明。提交并推送，push 前测试全绿。
 
+## 迭代 7 — 路线图② draft 草稿过滤（约 14:58）
+
+- front matter `draft: true` 的页面默认跳过构建与索引：
+  - `Site.build(include_drafts=False)`，CLI `build/serve --drafts` 可包含草稿；
+  - 配置 `[build] drafts` 也可默认开启；
+  - 草稿之前生成的旧输出会被自动清理。
+- 中途修 1 个自引入 bug：草稿分支无条件置 rebuilt_any=True，导致增量构建永远全量 → 改为只在真正清理残留时置位。
+- 脚手架新增 content/draft.md 示例草稿。
+- 新增测试 3 个：test_draft_filtered、test_draft_included、test_draft_stale_removed。
+- 测试 46/46 全绿；fuzz 种子 4242，1500 用例 0 问题；README 补充草稿说明。
+- 提交并推送，push 前测试全绿。
+

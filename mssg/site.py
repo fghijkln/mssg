@@ -9,12 +9,31 @@ import shutil
 import time
 import tomllib
 from pathlib import Path
+from urllib.parse import quote
 
 from . import markdown as _md
 from . import template as _tpl
 from .frontmatter import split as _split_fm
 
 _FIRST_HEADING = re.compile(r"^#{1,6}\s+(.+?)\s*#*\s*$", re.M)
+
+_TAG_FALLBACK = (
+    "<!doctype html><html><head><meta charset=utf-8>"
+    "<title>标签：{{ tag }}</title></head><body>"
+    "<h1>标签：{{ tag }}</h1><ul>"
+    "{% for p in pages %}"
+    '<li>{{ p.date }} <a href="/{{ p.url }}">{{ p.title }}</a></li>'
+    "{% endfor %}</ul></body></html>"
+)
+
+_ARCHIVE_FALLBACK = (
+    "<!doctype html><html><head><meta charset=utf-8>"
+    "<title>归档</title></head><body><h1>归档</h1>"
+    "{% for g in groups %}<h2>{{ g.ym }}</h2><ul>"
+    "{% for p in g.pages %}"
+    '<li>{{ p.date }} <a href="/{{ p.url }}">{{ p.title }}</a></li>'
+    "{% endfor %}</ul>{% endfor %}</body></html>"
+)
 
 
 def _sha1_file(path: Path) -> str:
@@ -32,6 +51,14 @@ def _is_draft(value) -> bool:
     if isinstance(value, str):
         return value.strip().lower() in ("true", "yes", "1")
     return False
+
+
+def _page_tags(page: dict) -> list:
+    """取页面的标签列表（支持列表或逗号分隔字符串）。"""
+    tags = page.get("tags", [])
+    if isinstance(tags, str):
+        tags = [t.strip() for t in tags.split(",")]
+    return [str(t).strip() for t in tags if str(t).strip()]
 
 
 class Site:
@@ -119,6 +146,20 @@ class Site:
             rebuilt_any or not (output_dir / "index.html").exists()
         ):
             self._render_index(pages, templates, output_dir)
+
+        if b.get("tag_pages", True):
+            made = self._render_tag_pages(pages, templates, output_dir, rebuilt_any)
+            self._clean_stale(output_dir, cache.get("tag_files", []), made)
+            cache["tag_files"] = sorted(made)
+        elif cache.get("tag_files"):
+            self._clean_stale(output_dir, cache.pop("tag_files"), set())
+
+        if b.get("archive_page", True):
+            archive_rel = self._render_archive(pages, templates, output_dir, rebuilt_any)
+            self._clean_stale(output_dir, cache.get("archive_files", []), {archive_rel})
+            cache["archive_files"] = [archive_rel]
+        elif cache.get("archive_files"):
+            self._clean_stale(output_dir, cache.pop("archive_files"), set())
 
         if static_dir.is_dir():
             new_static = set()
@@ -212,6 +253,62 @@ class Site:
             )
         (output_dir / "index.html").write_text(out, encoding="utf-8")
 
+    def _render_tag_pages(
+        self, pages: list, templates: dict, output_dir: Path, rebuilt_any: bool
+    ) -> set:
+        """为每个标签生成 tags/<tag>.html，返回生成文件的相对路径集合。"""
+        by_tag: dict[str, list] = {}
+        for p in pages:
+            for t in _page_tags(p):
+                by_tag.setdefault(t, []).append(p)
+        made = set()
+        for tag in sorted(by_tag):
+            tpages = sorted(by_tag[tag], key=lambda p: p["date"], reverse=True)
+            ctx = {"site": self.cfg["site"], "tag": tag, "pages": tpages}
+            if "tag.html" in templates:
+                out = _tpl.render_template("tag.html", ctx, templates.get)
+            else:
+                out = _tpl.render(_TAG_FALLBACK, ctx)
+            dest = output_dir / "tags" / (quote(tag, safe="") + ".html")
+            made.add(dest.relative_to(output_dir).as_posix())
+            if rebuilt_any or not dest.exists():
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                dest.write_text(out, encoding="utf-8")
+        return made
+
+    def _render_archive(
+        self, pages: list, templates: dict, output_dir: Path, rebuilt_any: bool
+    ) -> str:
+        """生成 archive.html（按年月归档），返回相对路径。"""
+        groups: dict[str, list] = {}
+        for p in pages:
+            groups.setdefault(str(p["date"])[:7], []).append(p)
+        ordered = [
+            {"ym": ym, "pages": sorted(ps, key=lambda p: p["date"], reverse=True)}
+            for ym, ps in sorted(groups.items(), reverse=True)
+        ]
+        ctx = {"site": self.cfg["site"], "groups": ordered}
+        if "archive.html" in templates:
+            out = _tpl.render_template("archive.html", ctx, templates.get)
+        else:
+            out = _tpl.render(_ARCHIVE_FALLBACK, ctx)
+        dest = output_dir / "archive.html"
+        if rebuilt_any or not dest.exists():
+            dest.write_text(out, encoding="utf-8")
+        return "archive.html"
+
+    @staticmethod
+    def _clean_stale(output_dir: Path, old_files: list, made: set) -> None:
+        """删除旧构建产物中已不再生成的残留文件（含路径穿越保护）。"""
+        for stale in set(old_files) - made:
+            stale_path = output_dir / stale
+            if stale_path.is_file():
+                try:
+                    stale_path.resolve().relative_to(output_dir.resolve())
+                except ValueError:
+                    continue
+                stale_path.unlink()
+
     @staticmethod
     def _load_cache(path: Path) -> dict:
         try:
@@ -267,8 +364,27 @@ def new_site(name: str | Path) -> Path:
         "{% endfor %}\n</ul>\n{% endblock %}\n",
         encoding="utf-8",
     )
+    (root / "templates" / "tag.html").write_text(
+        '{% extends "base.html" %}\n'
+        "{% block title %}标签：{{ tag }} - {{ site.title }}{% endblock %}\n"
+        "{% block content %}\n<h1>标签：{{ tag }}</h1>\n<ul>\n"
+        "{% for p in pages %}\n"
+        '<li>{{ p.date }} <a href="/{{ p.url }}">{{ p.title }}</a></li>\n'
+        "{% endfor %}\n</ul>\n{% endblock %}\n",
+        encoding="utf-8",
+    )
+    (root / "templates" / "archive.html").write_text(
+        '{% extends "base.html" %}\n'
+        "{% block title %}归档 - {{ site.title }}{% endblock %}\n"
+        "{% block content %}\n<h1>归档</h1>\n"
+        "{% for g in groups %}\n<h2>{{ g.ym }}</h2>\n<ul>\n"
+        "{% for p in g.pages %}\n"
+        '<li>{{ p.date }} <a href="/{{ p.url }}">{{ p.title }}</a></li>\n'
+        "{% endfor %}\n</ul>\n{% endfor %}\n{% endblock %}\n",
+        encoding="utf-8",
+    )
     (root / "content" / "hello.md").write_text(
-        "---\ntitle: 你好，世界\ndate: 2026-10-02\n---\n\n"
+        "---\ntitle: 你好，世界\ndate: 2026-10-02\ntags: [mssg, 示例]\n---\n\n"
         "# 你好，世界\n\n这是用 **mssg** 生成的第一篇文章。\n\n"
         "- 零依赖，只用 Python 标准库\n- 自研 Markdown 解析器\n- 自研模板引擎\n\n"
         "> 纸上得来终觉浅，绝知此事要躬行。\n",

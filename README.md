@@ -71,6 +71,10 @@ ATX 标题、段落、`**粗体**`、`*斜体*`、`` `行内代码` ``、`[链�
 - `static/` 原样拷贝，删除的文件会自动清理输出残留
 - 草稿：front matter 写 `draft: true` 的页面默认跳过，
   `mssg build --drafts` / `mssg serve --drafts` 可包含草稿
+- 标签页：front matter 写 `tags: [a, b]`，自动生成 `tags/<tag>.html`
+  （模板 `tag.html`，变量：`tag`、`pages`）
+- 归档页：自动生成 `archive.html`，按年月分组
+  （模板 `archive.html`，变量：`groups`，每组有 `ym` 与 `pages`）
 
 ## 测试
 

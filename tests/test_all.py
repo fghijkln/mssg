@@ -306,6 +306,52 @@ class TestBuild(unittest.TestCase):
             Site(root).build()
             self.assertFalse((root / "public" / "draft.html").exists())
 
+    def test_tag_pages(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = new_site(os.path.join(tmp, "demo"))
+            Site(root).build()
+            tag_page = root / "public" / "tags" / "mssg.html"
+            self.assertTrue(tag_page.exists())
+            html = tag_page.read_text(encoding="utf-8")
+            self.assertIn("标签：mssg", html)
+            self.assertIn("hello.html", html)
+
+    def test_tag_stale_cleanup(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = new_site(os.path.join(tmp, "demo"))
+            Site(root).build()
+            self.assertTrue((root / "public" / "tags" / "mssg.html").exists())
+            hello = root / "content" / "hello.md"
+            hello.write_text(
+                hello.read_text(encoding="utf-8").replace(
+                    "tags: [mssg, 示例]\n", ""
+                ),
+                encoding="utf-8",
+            )
+            Site(root).build()
+            self.assertFalse((root / "public" / "tags" / "mssg.html").exists())
+
+    def test_archive_page(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = new_site(os.path.join(tmp, "demo"))
+            Site(root).build()
+            archive = root / "public" / "archive.html"
+            self.assertTrue(archive.exists())
+            html = archive.read_text(encoding="utf-8")
+            self.assertIn("2026-10", html)
+            self.assertIn("hello.html", html)
+
+    def test_chinese_tag_url_quoted(self):
+        import urllib.parse
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = new_site(os.path.join(tmp, "demo"))
+            Site(root).build()
+            tag_page = root / "public" / "tags" / (
+                urllib.parse.quote("示例", safe="") + ".html"
+            )
+            self.assertTrue(tag_page.exists())
+
 
 if __name__ == "__main__":
     unittest.main()
