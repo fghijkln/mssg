@@ -40,6 +40,9 @@ front matter 示例：
 ---
 title: 你好，世界
 date: 2026-10-02
+tags: [mssg, 示例]
+draft: false
+template: page.html
 ---
 
 # 你好，世界
@@ -47,10 +50,41 @@ date: 2026-10-02
 正文……
 ```
 
+front matter 支持字符串、整数、浮点数、布尔、`[a, b]` 行内列表与 `- ` 多行列表；
+行尾 ` # 注释` 会被剥离（引号内保留）。
+
+## 配置参考（mssg.toml）
+
+```toml
+[site]
+title = "我的小站"   # 站点标题，模板里用 {{ site.title }}
+base_url = ""        # 站点根 URL，如 https://example.com（用于 feed/sitemap 绝对链接）
+
+[build]
+content_dir = "content"     # Markdown 源目录
+template_dir = "templates"  # 模板目录
+static_dir = "static"       # 静态资源目录（原样拷贝）
+output_dir = "public"       # 输出目录
+drafts = false              # true 则默认构建草稿（等价于 --drafts）
+tag_pages = true            # 是否生成 tags/<tag>.html
+archive_page = true         # 是否生成 archive.html
+feed = true                 # 是否生成 feed.xml（Atom）
+sitemap = true              # 是否生成 sitemap.xml
+```
+
+## CLI 参考
+
+```bash
+mssg new <目录>              # 生成站点脚手架（非空目录拒绝覆盖）
+mssg build [--force] [--drafts] [-c mssg.toml]
+mssg serve [--port 8000] [--drafts] [--no-watch] [-c mssg.toml]
+mssg --version
+```
+
 ## Markdown 支持（自研子集）
 
 ATX 标题、段落、`**粗体**`、`*斜体*`、`` `行内代码` ``、`[链接](url)`、
-`![图片](url)`、无序/有序列表（一层嵌套）、`>` 引用、```` ``` ```` 围栏代码块、
+`![图片](url)`、无序/有序列表（支持嵌套）、`>` 引用、```` ``` ```` 围栏代码块、
 `---` 分隔线、简单表格。
 
 ## 模板语法（自研）
@@ -88,8 +122,17 @@ python -m unittest discover -s tests
 
 ## 路线图
 
-- 模板继承（`{% extends %}` / `{% block %}`）
-- 标签页与归档页自动生成
-- 草稿（`draft: true`）过滤
-- RSS/Atom 输出
-- `serve` 的文件监听自动重建
+已完成：
+
+- [x] 模板继承（`{% extends %}` / `{% block %}`）
+- [x] 标签页与归档页自动生成
+- [x] 草稿（`draft: true`）过滤
+- [x] Atom 输出（feed.xml）
+- [x] `serve` 的文件监听自动重建
+- [x] sitemap.xml
+
+后续想法：
+
+- `{% include %}` 模板片段引入
+- 分页（首页/标签页按 N 篇分页）
+- 多语言站点支持
