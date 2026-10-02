@@ -764,10 +764,28 @@ class TestBuild(unittest.TestCase):
             self.assertNotIn("/page/2.html", sm)
             self.assertEqual(sm.count("<loc>/index.html</loc>"), 1)
 
+    def test_template_override_triggers_rebuild(self):
+        # 站点 templates/ 覆盖主题模板（新增/修改）要触发重建
+        with tempfile.TemporaryDirectory() as tmp:
+            root = new_site(os.path.join(tmp, "demo"))
+            Site(root).build()
+            self.assertFalse(Site(root).build()["rebuilt"])
+            (root / "templates").mkdir(exist_ok=True)
+            (root / "templates" / "page.html").write_text(
+                "覆盖版 {{ page.title }}", encoding="utf-8"
+            )
+            self.assertTrue(Site(root).build()["rebuilt"])
+            page = (root / "public" / "hello.html").read_text(encoding="utf-8")
+            self.assertIn("覆盖版", page)
+
     def test_template_rename_triggers_rebuild(self):
         # 模板重命名（内容不变、排序位置不变）也要触发重建
         with tempfile.TemporaryDirectory() as tmp:
             root = new_site(os.path.join(tmp, "demo"))
+            (root / "templates").mkdir(exist_ok=True)
+            (root / "templates" / "page.html").write_text(
+                "v1 {{ page.title }}", encoding="utf-8"
+            )
             Site(root).build()
             self.assertFalse(Site(root).build()["rebuilt"])
             (root / "templates" / "page.html").rename(
@@ -791,11 +809,25 @@ class TestBuild(unittest.TestCase):
     def test_static_orphan_cleanup(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = new_site(os.path.join(tmp, "demo"))
+            (root / "static" / "custom.txt").write_text("x", encoding="utf-8")
             Site(root).build()
+            self.assertTrue((root / "public" / "custom.txt").exists())
+            # 主题自带 style.css
             self.assertTrue((root / "public" / "style.css").exists())
-            (root / "static" / "style.css").unlink()
+            (root / "static" / "custom.txt").unlink()
             Site(root).build()
-            self.assertFalse((root / "public" / "style.css").exists())
+            self.assertFalse((root / "public" / "custom.txt").exists())
+            # 主题文件不受站点 static 增删影响
+            self.assertTrue((root / "public" / "style.css").exists())
+
+    def test_static_override_theme(self):
+        # 站点 static/ 下的同名文件覆盖主题 static
+        with tempfile.TemporaryDirectory() as tmp:
+            root = new_site(os.path.join(tmp, "demo"))
+            (root / "static" / "style.css").write_text("/* mine */", encoding="utf-8")
+            Site(root).build()
+            css = (root / "public" / "style.css").read_text(encoding="utf-8")
+            self.assertIn("mine", css)
 
     def test_new_site_refuses_nonempty(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -950,6 +982,7 @@ class TestBuild(unittest.TestCase):
                 "---\ntitle: 坏页\ntemplate: broken.html\n---\n\n内容\n",
                 encoding="utf-8",
             )
+            (root / "templates").mkdir(exist_ok=True)
             (root / "templates" / "broken.html").write_text(
                 "{% if x %}未闭合", encoding="utf-8"
             )
@@ -974,6 +1007,7 @@ class TestCLI(unittest.TestCase):
         # 模板写坏时 CLI 打印一行友好错误并返回 1，不抛 traceback
         with tempfile.TemporaryDirectory() as tmp:
             root = new_site(os.path.join(tmp, "demo"))
+            (root / "templates").mkdir(exist_ok=True)
             (root / "templates" / "page.html").write_text(
                 "{% if x %}oops", encoding="utf-8"
             )

@@ -131,10 +131,25 @@ endpoint = ""
 换肤不需要改模板：改 `mssg.toml` 里的标题、菜单、hero、特性卡、
 联系方式，重新 `mssg build` 就是一家新公司。
 
+## 主题
+
+内置两套主题，`mssg.toml` 里 `[site] theme` 切换：
+
+- `company`（默认）：公司官网风，粘性导航、渐变 hero、特性卡片
+- `minimal`：极简风，大留白、细字重，接近 Google 官网的气质
+
+```bash
+mssg new mysite --theme minimal   # 直接用极简主题建站
+```
+
+换主题不用动模板文件；想微调某一个模板时，在站点 `templates/`
+下放一个同名文件即可覆盖主题的对应文件（`static/` 同理）。
+`base_url` 配置后自动输出真正的 `<link rel="canonical">`。
+
 ## CLI 参考
 
 ```bash
-mssg new <目录>              # 生成站点脚手架（非空目录拒绝覆盖）
+mssg new <目录> [--theme minimal]  # 生成站点脚手架（非空目录拒绝覆盖）
 mssg new post <slug> [-t 标题]  # 在 content/ 下新建文章（已存在则拒绝覆盖）
 mssg post <slug> [-t 标题]      # 同上，兼容别名
 mssg build [--force] [--drafts] [-c mssg.toml]
@@ -273,3 +288,5 @@ python -m unittest discover -s tests
 - [x] 本地内容管理后台（0.6.0：`mssg admin`）
 - [x] 图片压缩/缩放（0.6.0：Pillow）
 - [x] 联系表单（0.6.0：第三方 endpoint 配置）
+- [x] 主题系统（0.7.0：内置 company/minimal，配置切换 + 站点覆盖）
+- [x] 真正的 rel=canonical（0.7.0）

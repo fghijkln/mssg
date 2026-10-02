@@ -1,5 +1,23 @@
 # 更新日志
 
+## 0.7.0（2026-10-02）
+
+主题系统 + 真正的 canonical（166 测试全绿）：
+
+### 新功能
+
+- 主题机制：内置主题放在 `mssg/themes/<name>/`（模板 + 静态资源），
+  `[site] theme` 切换（`company`/`minimal`），`mssg new --theme minimal` 建站；
+  站点 `templates/` 下放同名文件即覆盖主题对应模板，`static/` 同名覆盖主题静态资源；
+  未知主题名构建时报错并列出可用主题
+- 新主题 `minimal`：Google 官网式的极简风（大留白、细字重、无渐变），
+  与 `company` 共用全部配置项（菜单/hero/特性卡/搜索/表单/i18n）
+- 真正的 `<link rel="canonical">`：`base_url` 配置后输出（之前 0.5.0 的
+  CHANGELOG 误写为 canonical，实际只有 `og:url`，本次补上真正的标签；
+  放在 `{% block meta %}` 之外，避免被 `page.html` 的 meta 覆盖吞掉）
+- `mssg new` 不再复制模板文件到站点（脚手架更干净）；换肤 = 改配置，
+  微调 = 在站点 `templates/` 放覆盖文件
+
 ## 0.6.0（2026-10-02）
 
 补齐公司官网级能力的五个短板（157 测试全绿）：
@@ -46,7 +64,8 @@
 - `[site.hero]`：首页标题/副标题/双 CTA 按钮
 - `[[site.features]]`：首页特性卡片（增删改后重新 build 即可）
 - `[site.contact]` / `[site.footer]`：联系方式与页脚文字
-- SEO：Open Graph + Twitter Card meta 标签（base_url 配置后带 canonical 链接）
+- SEO：Open Graph + Twitter Card meta 标签（`og:url` 需要配置 base_url；
+  真正的 canonical 标签在 0.7.0 补上）
 - 首页新闻区（最新 5 篇）+ 分页导航；示例内容含"关于我们/产品介绍"两个页面
 - 配置缺省保护：`mssg.toml` 里不写 menu/hero 等节时模板不报错
 

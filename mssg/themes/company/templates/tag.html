@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}标签：{{ tag }} - {{ site.title }}{% endblock %}
+{% block content %}
+<div class="wrap article">
+<h1>标签：{{ tag }}</h1>
+<ul class="post-list">
+{% for p in pages %}
+<li><span class="date">{{ p.date }}</span> <a href="/{{ p.url }}">{{ p.title }}</a></li>
+{% endfor %}
+</ul>
+{% if pagination.multiple %}
+<nav class="pager">
+{% if pagination.has_prev %}<a href="{{ pagination.prev_url }}">上一页</a>{% endif %}
+<span>{{ pagination.page }} / {{ pagination.total_pages }}</span>
+{% if pagination.has_next %}<a href="{{ pagination.next_url }}">下一页</a>{% endif %}
+</nav>
+{% endif %}
+</div>
+{% endblock %}

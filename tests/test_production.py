@@ -112,6 +112,7 @@ class TestProductionBuild(unittest.TestCase):
             '{"items": [{"name": "友链", "url": "https://e.com"}]}',
             encoding="utf-8",
         )
+        (root / "templates").mkdir(exist_ok=True)
         (root / "templates" / "index.html").write_text(
             "{% for p in pages %}{{ p.title }}|{{ p.summary_text }};"
             "{% endfor %}{{ data.links['items']|first|upper }}",
@@ -145,6 +146,7 @@ class TestProductionBuild(unittest.TestCase):
                 "---\ntitle: B\ndate: 2026-10-01\n---\n\n# B\n\n第一段。\n\n第二段。\n",
                 encoding="utf-8",
             )
+            (root / "templates").mkdir(exist_ok=True)
             (root / "templates" / "index.html").write_text(
                 "{% for p in pages %}{{ p.title }}:{{ p.summary_text }};{% endfor %}",
                 encoding="utf-8",

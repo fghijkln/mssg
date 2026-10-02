@@ -248,5 +248,75 @@ class TestAdmin(unittest.TestCase):
             self.assertNotIn("tags", meta)  # 清空标签时移除
 
 
+class TestTheme(unittest.TestCase):
+    def test_available_themes(self):
+        self.assertIn("company", Site.available_themes())
+        self.assertIn("minimal", Site.available_themes())
+
+    def test_new_site_has_no_templates_dir(self):
+        # 模板来自内置主题，脚手架不再复制模板文件
+        with tempfile.TemporaryDirectory() as tmp:
+            root = new_site(os.path.join(tmp, "demo"))
+            self.assertFalse((root / "templates").exists())
+            Site(root).build()
+            index = (root / "public" / "index.html").read_text(encoding="utf-8")
+            self.assertIn("星尘科技", index)
+            self.assertTrue((root / "public" / "style.css").exists())
+
+    def test_switch_theme(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = new_site(os.path.join(tmp, "demo"))
+            Site(root).build()
+            company_index = (root / "public" / "index.html").read_text(encoding="utf-8")
+            self.assertIn("cta-row", company_index)
+            toml = (root / "mssg.toml").read_text(encoding="utf-8")
+            toml = toml.replace('theme = "company"', 'theme = "minimal"')
+            (root / "mssg.toml").write_text(toml, encoding="utf-8")
+            Site(root).build()
+            minimal_index = (root / "public" / "index.html").read_text(encoding="utf-8")
+            self.assertNotIn("cta-row", minimal_index)
+            self.assertIn("星尘科技", minimal_index)  # 内容配置不变
+            css = (root / "public" / "style.css").read_text(encoding="utf-8")
+            self.assertIn("--blue", css)
+
+    def test_unknown_theme(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = new_site(os.path.join(tmp, "demo"))
+            toml = (root / "mssg.toml").read_text(encoding="utf-8")
+            toml = toml.replace('theme = "company"', 'theme = "nope"')
+            (root / "mssg.toml").write_text(toml, encoding="utf-8")
+            with self.assertRaises(ValueError) as cm:
+                Site(root).build()
+            self.assertIn("未知主题", str(cm.exception))
+
+    def test_new_site_unknown_theme(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(ValueError):
+                new_site(os.path.join(tmp, "demo"), theme="nope")
+
+    def test_canonical_link(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = new_site(os.path.join(tmp, "demo"))
+            toml = (root / "mssg.toml").read_text(encoding="utf-8")
+            toml = toml.replace('base_url = ""', 'base_url = "https://example.com"')
+            (root / "mssg.toml").write_text(toml, encoding="utf-8")
+            Site(root).build()
+            about = (root / "public" / "about.html").read_text(encoding="utf-8")
+            self.assertIn(
+                '<link rel="canonical" href="https://example.com/about.html">', about
+            )
+            index = (root / "public" / "index.html").read_text(encoding="utf-8")
+            self.assertIn(
+                '<link rel="canonical" href="https://example.com/">', index
+            )
+
+    def test_no_canonical_without_base_url(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = new_site(os.path.join(tmp, "demo"))
+            Site(root).build()
+            about = (root / "public" / "about.html").read_text(encoding="utf-8")
+            self.assertNotIn("rel=\"canonical\"", about)
+
+
 if __name__ == "__main__":
     unittest.main()

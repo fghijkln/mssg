@@ -17,8 +17,8 @@ from .site import Site, new_site
 
 def _cmd_new(args) -> int:  # args.target 即站点目录名
     try:
-        root = new_site(args.target)
-    except OSError as e:
+        root = new_site(args.target, theme=getattr(args, "theme", "company"))
+    except (OSError, ValueError) as e:
         print("错误：%s" % e)
         return 1
     print("已创建站点：%s" % root)
@@ -222,6 +222,11 @@ def main() -> int:
     p_new.add_argument("-t", "--title", default="", help="（new post 时）文章标题（默认用 slug）")
     p_new.add_argument(
         "-c", "--config", default="mssg.toml", help="配置文件路径（默认 mssg.toml）"
+    )
+    p_new.add_argument(
+        "--theme",
+        default="company",
+        help="建站主题（默认 company，可用：%s）" % ", ".join(Site.available_themes()),
     )
     p_new.set_defaults(func=_cmd_new_dispatch)
 

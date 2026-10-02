@@ -256,6 +256,7 @@ class Site:
                 "title": "My Site",
                 "base_url": "",
                 "description": "",
+                "theme": "company",
                 # 公司站各节：缺了也不让模板炸，给空默认值
                 "menu": [],
                 "hero": {},
@@ -630,11 +631,19 @@ class Site:
         elif cache.get("sitemap_files"):
             self._clean_stale(output_dir, cache.pop("sitemap_files"), set())
 
-        if static_dir.is_dir():
-            new_static = set()
-            for sp in sorted(static_dir.rglob("*")):
-                if sp.is_file():
-                    new_static.add(sp.relative_to(static_dir).as_posix())
+        # 静态资源：主题 static 为底，站点 static/ 覆盖同名文件
+        _, theme_static = self._theme_dirs()
+        static_srcs = [
+            (theme_static, True),
+            (static_dir, False),
+        ]
+        new_static = set()
+        for src_dir, _ in static_srcs:
+            if src_dir.is_dir():
+                for sp in sorted(src_dir.rglob("*")):
+                    if sp.is_file():
+                        new_static.add(sp.relative_to(src_dir).as_posix())
+        if new_static or cache.get("static_files"):
             # 清理 static 里已删除的文件在输出目录中的残留
             for stale in set(cache.get("static_files", [])) - new_static:
                 stale_path = output_dir / stale
@@ -646,12 +655,14 @@ class Site:
                     stale_path.unlink()
             max_w = b.get("image_max_width", 1600)
             quality = b.get("image_quality", 82)
-            for sp in sorted(static_dir.rglob("*")):
-                if sp.is_file():
-                    self._copy_static_file(
-                        sp, output_dir / sp.relative_to(static_dir),
-                        max_w, quality,
-                    )
+            for src_dir, _ in static_srcs:
+                if src_dir.is_dir():
+                    for sp in sorted(src_dir.rglob("*")):
+                        if sp.is_file():
+                            self._copy_static_file(
+                                sp, output_dir / sp.relative_to(src_dir),
+                                max_w, quality,
+                            )
             cache["static_files"] = sorted(new_static)
 
         cache["templates"] = tpl_digest
@@ -661,13 +672,35 @@ class Site:
 
     # -- 内部 ----------------------------------------------------------
 
+    @staticmethod
+    def available_themes() -> list:
+        """内置主题列表（mssg/themes/<name>/）。"""
+        base = Path(__file__).parent / "themes"
+        if not base.is_dir():
+            return []
+        return sorted(p.name for p in base.iterdir() if p.is_dir())
+
+    def _theme_dirs(self) -> tuple:
+        """当前主题的 (templates_dir, static_dir)；主题不存在时报 ValueError。"""
+        theme = self.cfg["site"].get("theme", "company") or "company"
+        tdir = Path(__file__).parent / "themes" / theme
+        if not tdir.is_dir():
+            raise ValueError(
+                "未知主题 %r，可用主题：%s（mssg.toml 里改 [site] theme）"
+                % (theme, ", ".join(self.available_themes()) or "无")
+            )
+        return tdir / "templates", tdir / "static"
+
     def _load_templates(self, template_dir: Path) -> dict:
+        """加载模板：主题模板为底，站点 templates/ 覆盖同名文件。"""
         templates = {}
-        if template_dir.is_dir():
-            for tp in sorted(template_dir.rglob("*.html")):
-                templates[tp.relative_to(template_dir).as_posix()] = tp.read_text(
-                    encoding="utf-8"
-                )
+        theme_tpl, _ = self._theme_dirs()
+        for d in (theme_tpl, template_dir):
+            if d.is_dir():
+                for tp in sorted(d.rglob("*.html")):
+                    templates[tp.relative_to(d).as_posix()] = tp.read_text(
+                        encoding="utf-8"
+                    )
         return templates
 
     def _read_page(self, md_path: Path, rel: str, url: str) -> dict:
@@ -1171,19 +1204,23 @@ document.getElementById("q").addEventListener("input", e => {
         path.write_text(json.dumps(cache, ensure_ascii=False), encoding="utf-8")
 
 
-def new_site(name: str | Path) -> Path:
-    """生成公司官网级站点脚手架，返回站点根目录。目标为非空目录时拒绝覆盖。
+def new_site(name: str | Path, theme: str = "company") -> Path:
+    """生成站点脚手架，返回站点根目录。目标为非空目录时拒绝覆盖。
 
-    换肤不需要改模板：导航菜单、hero、特性卡、联系方式、页脚文字
-    都在 mssg.toml 里配置。
+    模板与主题静态资源来自内置主题（mssg/themes/<theme>/），不在站点里
+    复制一份；换主题只改 mssg.toml 里 [site] theme。想微调单个模板时，
+    在站点 templates/ 下放同名文件即可覆盖主题的对应文件。
     """
+    if theme not in Site.available_themes():
+        raise ValueError(
+            "未知主题 %r，可用主题：%s" % (theme, ", ".join(Site.available_themes()))
+        )
     root = Path(name)
     if root.is_file():
         raise FileExistsError("目标已存在且为文件，拒绝覆盖：%s" % root)
     if root.exists() and any(root.iterdir()):
         raise FileExistsError("目录已存在且非空，拒绝覆盖：%s" % root)
     (root / "content").mkdir(parents=True, exist_ok=True)
-    (root / "templates").mkdir(parents=True, exist_ok=True)
     (root / "static").mkdir(parents=True, exist_ok=True)
     (root / "data").mkdir(parents=True, exist_ok=True)
 
@@ -1198,6 +1235,7 @@ def new_site(name: str | Path) -> Path:
 title = "星尘科技"
 description = "星尘科技专注于云端协作工具，帮小团队把想法快速变成产品。"
 base_url = ""
+theme = "%s"  # 内置主题：company（公司站）/ minimal（极简风）；templates/ 下放同名文件可覆盖
 
 # 导航菜单（按 weight 排序）
 [[site.menu]]
@@ -1250,14 +1288,14 @@ text = "语义化 HTML、sitemap、RSS、Open Graph 标签开箱即备。"
 email = "hi@example.com"
 phone = "400-000-0000"
 
+[site.footer]
+text = "© 2026 星尘科技"
+
 # 联系表单：填入 Formspree / Getform 等第三方服务的 endpoint，
 # 联系页（/contact.html）的表单即可用；留空则显示配置提示。
 [site.form]
 endpoint = ""
 # endpoint = "https://formspree.io/f/xxxxxx"
-
-[site.footer]
-text = "© 2026 星尘科技"
 
 # 多语言：取消注释启用英文版。about.en.md 这类文件会输出到 en/ 目录，
 # [site.en] 覆盖英文版的站点文案（标题/菜单/hero 等）。
@@ -1275,257 +1313,10 @@ text = "© 2026 星尘科技"
 # image_max_width = 1600  # static/ 里的图片超过此宽度则缩放；0 表示不缩放
 # image_quality = 82      # JPEG 压缩质量（1-95）
 # search = false          # 设为 false 关闭站内搜索（search.json + /search.html）
-""",
+""" % theme,
         encoding="utf-8",
     )
 
-    (root / "templates" / "base.html").write_text(
-        """\
-<!doctype html>
-<html lang="{{ lang }}">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{% block title %}{{ site.title }}{% endblock %}</title>
-{% block meta %}
-<meta name="description" content="{{ site.description }}">
-<meta property="og:title" content="{{ site.title }}">
-<meta property="og:description" content="{{ site.description }}">
-<meta property="og:type" content="website">
-{% if site.base_url %}<meta property="og:url" content="{{ site.base_url }}/{{ page.url if page else '' }}">{% endif %}
-<meta name="twitter:card" content="summary">
-{% endblock %}
-{% for l, u in translations.items() %}<link rel="alternate" hreflang="{{ l }}" href="/{{ u }}">
-{% endfor %}
-<link rel="stylesheet" href="/style.css">
-<link rel="alternate" type="application/atom+xml" title="{{ site.title }}" href="/feed.xml">
-</head>
-<body>
-<header class="site-header">
-<div class="wrap nav">
-<a class="brand" href="/">{{ site.title }}</a>
-<nav>
-{% for m in site.menu|sort(attribute="weight") %}<a href="{{ m.url }}">{{ m.name }}</a>{% endfor %}
-{% if langs|length > 1 %}
-<span class="lang-switch">
-{% for l in langs %}{% if l == lang %}<strong>{{ l }}</strong>{% elif l in translations %}<a href="/{{ translations[l] }}">{{ l }}</a>{% elif l == default_lang %}<a href="/">{{ l }}</a>{% else %}<a href="/{{ l }}/">{{ l }}</a>{% endif %}{% endfor %}
-</span>
-{% endif %}
-</nav>
-</div>
-</header>
-<main>{% block content %}{% endblock %}</main>
-<footer class="site-footer">
-<div class="wrap">
-<p>{{ site.footer.text }} · 由 mssg 生成</p>
-{% if site.contact.email %}<p>联系：<a href="mailto:{{ site.contact.email }}">{{ site.contact.email }}</a>{% if site.contact.phone %} · {{ site.contact.phone }}{% endif %}</p>{% endif %}
-</div>
-</footer>
-</body>
-</html>
-""",
-        encoding="utf-8",
-    )
-    (root / "templates" / "page.html").write_text(
-        """\
-{% extends "base.html" %}
-{% block title %}{{ page.title }} - {{ site.title }}{% endblock %}
-{% block meta %}<meta name="description" content="{{ page.summary_text }}">
-<meta property="og:title" content="{{ page.title }} - {{ site.title }}">
-<meta property="og:description" content="{{ page.summary_text }}">
-<meta property="og:type" content="article">
-{% endblock %}
-{% block content %}
-<div class="wrap article">
-<h1>{{ page.title }}</h1>
-{% if page.date %}<p class="meta">{{ page.date }}</p>{% endif %}
-{% if page.toc %}
-<nav class="toc"><ul>
-{% for h in page.toc %}<li class="toc{{ h.level }}"><a href="#{{ h.id }}">{{ h.text }}</a></li>
-{% endfor %}
-</ul></nav>
-{% endif %}
-{{ page.content }}
-</div>
-{% endblock %}
-""",
-        encoding="utf-8",
-    )
-    (root / "templates" / "index.html").write_text(
-        """\
-{% extends "base.html" %}
-{% block content %}
-<section class="hero">
-<div class="wrap">
-<h1>{{ site.hero.title }}</h1>
-<p class="lede">{{ site.hero.subtitle }}</p>
-<p class="cta-row">
-<a class="btn" href="{{ site.hero.cta_url }}">{{ site.hero.cta_text }}</a>
-{% if site.hero.cta2_text %}<a class="btn ghost" href="{{ site.hero.cta2_url }}">{{ site.hero.cta2_text }}</a>{% endif %}
-</p>
-</div>
-</section>
-<section class="features">
-<div class="wrap">
-<div class="cards">
-{% for f in site.features %}
-<div class="card"><h3>{{ f.title }}</h3><p>{{ f.text }}</p></div>
-{% endfor %}
-</div>
-</div>
-</section>
-<section class="news" id="news">
-<div class="wrap">
-<h2>新闻动态</h2>
-<ul class="post-list">
-{% for p in pages[:5] %}
-<li><span class="date">{{ p.date }}</span> <a href="/{{ p.url }}">{{ p.title }}</a></li>
-{% endfor %}
-</ul>
-<p><a href="/archive.html">全部归档 →</a></p>
-{% if pagination.multiple %}
-<nav class="pager">
-{% if pagination.has_prev %}<a href="{{ pagination.prev_url }}">← 上一页</a>{% endif %}
-<span>{{ pagination.page }} / {{ pagination.total_pages }}</span>
-{% if pagination.has_next %}<a href="{{ pagination.next_url }}">下一页 →</a>{% endif %}
-</nav>
-{% endif %}
-</div>
-</section>
-{% endblock %}
-""",
-        encoding="utf-8",
-    )
-    (root / "templates" / "tag.html").write_text(
-        """\
-{% extends "base.html" %}
-{% block title %}标签：{{ tag }} - {{ site.title }}{% endblock %}
-{% block content %}
-<div class="wrap article">
-<h1>标签：{{ tag }}</h1>
-<ul class="post-list">
-{% for p in pages %}
-<li><span class="date">{{ p.date }}</span> <a href="/{{ p.url }}">{{ p.title }}</a></li>
-{% endfor %}
-</ul>
-{% if pagination.multiple %}
-<nav class="pager">
-{% if pagination.has_prev %}<a href="{{ pagination.prev_url }}">上一页</a>{% endif %}
-<span>{{ pagination.page }} / {{ pagination.total_pages }}</span>
-{% if pagination.has_next %}<a href="{{ pagination.next_url }}">下一页</a>{% endif %}
-</nav>
-{% endif %}
-</div>
-{% endblock %}
-""",
-        encoding="utf-8",
-    )
-    (root / "templates" / "category.html").write_text(
-        """\
-{% extends "base.html" %}
-{% block title %}分类：{{ category }} - {{ site.title }}{% endblock %}
-{% block content %}
-<div class="wrap article">
-<h1>分类：{{ category }}</h1>
-<ul class="post-list">
-{% for p in pages %}
-<li><span class="date">{{ p.date }}</span> <a href="/{{ p.url }}">{{ p.title }}</a></li>
-{% endfor %}
-</ul>
-</div>
-{% endblock %}
-""",
-        encoding="utf-8",
-    )
-    (root / "templates" / "archive.html").write_text(
-        """\
-{% extends "base.html" %}
-{% block title %}归档 - {{ site.title }}{% endblock %}
-{% block content %}
-<div class="wrap article">
-<h1>归档</h1>
-{% for g in groups %}
-<h2>{{ g.ym }}</h2>
-<ul class="post-list">
-{% for p in g.pages %}
-<li><span class="date">{{ p.date }}</span> <a href="/{{ p.url }}">{{ p.title }}</a></li>
-{% endfor %}
-</ul>
-{% endfor %}
-</div>
-{% endblock %}
-""",
-        encoding="utf-8",
-    )
-    (root / "templates" / "search.html").write_text(
-        """\
-{% extends "base.html" %}
-{% block title %}搜索 - {{ site.title }}{% endblock %}
-{% block content %}
-<div class="wrap article">
-<h1>搜索</h1>
-<input id="q" class="search-box" placeholder="输入关键词…" autocomplete="off">
-<div id="results" class="search-results"></div>
-</div>
-<script>
-const LANG = document.documentElement.lang;
-let idx = [];
-fetch("/search.json").then(r => r.json()).then(d => {
-  idx = d.filter(e => !e.lang || e.lang === LANG);
-});
-document.getElementById("q").addEventListener("input", e => {
-  const q = e.target.value.trim().toLowerCase();
-  const box = document.getElementById("results");
-  if (!q) { box.innerHTML = ""; return; }
-  const hits = idx.filter(h =>
-    ((h.title || "") + " " + (h.text || "")).toLowerCase().includes(q)
-  ).slice(0, 20);
-  box.innerHTML = hits.length ? hits.map(h =>
-    '<p><a href="/' + h.url + '">' + h.title.replace(/</g, "&lt;") +
-    "</a><br><small>" + h.date + "</small></p>"
-  ).join("") : "<p>没有找到。</p>";
-});
-</script>
-{% endblock %}
-""",
-        encoding="utf-8",
-    )
-    (root / "templates" / "contact.html").write_text(
-        """\
-{% extends "base.html" %}
-{% block title %}{{ page.title }} - {{ site.title }}{% endblock %}
-{% block content %}
-<div class="wrap article">
-<h1>{{ page.title }}</h1>
-{{ page.content }}
-{% if site.form.endpoint %}
-<form class="contact-form" action="{{ site.form.endpoint }}" method="POST">
-<label>姓名<input type="text" name="name" required></label>
-<label>邮箱<input type="email" name="email" required></label>
-<label>留言<textarea name="message" rows="6" required></textarea></label>
-<button class="btn" type="submit">发送</button>
-</form>
-{% else %}
-<p class="hint">联系表单尚未配置：在 <code>mssg.toml</code> 的 <code>[site.form]</code>
-中填入 endpoint（如 Formspree）后重新构建即可启用。</p>
-{% endif %}
-</div>
-{% endblock %}
-""",
-        encoding="utf-8",
-    )
-    (root / "content" / "contact.md").write_text(
-        """\
----
-title: 联系我们
-date: 2026-10-02
-template: contact.html
----
-
-欢迎通过下表给我们留言，我们会尽快回复。
-""",
-        encoding="utf-8",
-    )
     (root / "content" / "about.md").write_text(
         """\
 ---
@@ -1589,6 +1380,18 @@ tags: [mssg, 示例]
 """,
         encoding="utf-8",
     )
+    (root / "content" / "contact.md").write_text(
+        """\
+---
+title: 联系我们
+date: 2026-10-02
+template: contact.html
+---
+
+欢迎通过下表给我们留言，我们会尽快回复。
+""",
+        encoding="utf-8",
+    )
     (root / "content" / "draft.md").write_text(
         """\
 ---
@@ -1601,101 +1404,6 @@ draft: true
 
 这篇是草稿，`mssg build` 默认跳过，
 `mssg build --drafts` 才会构建它。
-""",
-        encoding="utf-8",
-    )
-    (root / "static" / "style.css").write_text(
-        """\
-:root{
-  --primary:#1d4ed8; --primary-dark:#1e40af;
-  --ink:#1f2937; --muted:#6b7280; --line:#e5e7eb;
-  --bg:#ffffff; --soft:#f3f4f6; --card:#ffffff;
-}
-*{box-sizing:border-box}
-body{margin:0;font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;
-  line-height:1.8;color:var(--ink);background:var(--bg)}
-a{color:var(--primary);text-decoration:none}
-a:hover{text-decoration:underline}
-.wrap{max-width:64rem;margin:0 auto;padding:0 1.25rem}
-/* 导航 */
-.site-header{position:sticky;top:0;background:rgba(255,255,255,.96);
-  border-bottom:1px solid var(--line);z-index:10}
-.site-header .nav{display:flex;align-items:center;justify-content:space-between;
-  padding:.9rem 1.25rem;flex-wrap:wrap;gap:.5rem}
-.brand{font-size:1.25rem;font-weight:700;color:var(--ink)}
-.brand:hover{text-decoration:none}
-.site-header nav a{margin-left:1.25rem;color:var(--ink);font-size:.95rem}
-.site-header nav a:hover{color:var(--primary)}
-/* hero */
-.hero{background:linear-gradient(135deg,#1e3a8a,#1d4ed8 60%,#3b82f6);
-  color:#fff;padding:4.5rem 0;text-align:center}
-.hero h1{font-size:2.4rem;margin:0 0 1rem;line-height:1.3}
-.hero .lede{font-size:1.15rem;opacity:.92;max-width:36rem;margin:0 auto 2rem}
-.cta-row .btn{display:inline-block;background:#fff;color:var(--primary-dark);
-  padding:.7rem 1.8rem;border-radius:.5rem;font-weight:600;margin:.25rem}
-.cta-row .btn:hover{text-decoration:none;transform:translateY(-1px)}
-.cta-row .btn.ghost{background:transparent;color:#fff;border:1px solid #fff}
-/* 特性卡片 */
-.features{padding:3.5rem 0;background:var(--soft)}
-.cards{display:grid;grid-template-columns:repeat(3,1fr);gap:1.25rem}
-.card{background:var(--card);border:1px solid var(--line);border-radius:.75rem;
-  padding:1.5rem}
-.card h3{margin:0 0 .5rem;font-size:1.1rem}
-.card p{margin:0;color:var(--muted);font-size:.95rem}
-/* 新闻列表 */
-.news{padding:3rem 0}
-.news h2{font-size:1.5rem;margin:0 0 1.25rem}
-.post-list{list-style:none;margin:0 0 1.5rem;padding:0}
-.post-list li{padding:.6rem 0;border-bottom:1px solid var(--line)}
-.post-list .date{color:var(--muted);font-size:.9rem;margin-right:1rem}
-/* 文章页 */
-.article{padding:2.5rem 0;max-width:46rem}
-.article h1{font-size:2rem;line-height:1.4}
-.meta{color:var(--muted);font-size:.9rem}
-.toc{background:var(--soft);border-radius:.5rem;padding:1rem 1.5rem;margin:1.5rem 0}
-.toc ul{margin:0;padding-left:1.25rem}
-.toc3{margin-left:1rem}
-/* 页脚 */
-.site-footer{border-top:1px solid var(--line);padding:2rem 0;color:var(--muted);
-  font-size:.9rem;text-align:center}
-/* 通用内容元素 */
-pre{background:#f4f4f4;padding:1em;overflow:auto;border-radius:.5rem}
-code{background:#f4f4f4;padding:0 .3em;border-radius:.25rem}
-pre code{background:none;padding:0}
-.codehilite{background:#f4f4f4;padding:.2em 1em;overflow:auto;border-radius:.5rem}
-.codehilite .k,.codehilite .kn{color:#008000;font-weight:bold}
-.codehilite .s,.codehilite .s1,.codehilite .s2{color:#ba2121}
-.codehilite .c,.codehilite .c1,.codehilite .cm{color:#408080;font-style:italic}
-.codehilite .nb,.codehilite .nf{color:#06287e}
-.codehilite .mi,.codehilite .mf,.codehilite .o{color:#666}
-table{border-collapse:collapse;margin:1em 0}
-th,td{border:1px solid #ccc;padding:.3em .8em}
-blockquote{border-left:3px solid var(--primary);margin:1.5em 0;padding:.2em 0 .2em 1em;
-  color:var(--muted);background:var(--soft);border-radius:0 .5rem .5rem 0}
-.pager{display:flex;gap:1rem;align-items:center;margin:2rem 0}
-/* 语言切换 */
-.lang-switch{margin-left:1.25rem;font-size:.85rem;white-space:nowrap}
-.lang-switch a{margin-left:.5rem}
-.lang-switch strong{margin-left:.5rem;color:var(--primary)}
-/* 搜索 */
-.search-box{width:100%;padding:.7em 1em;font-size:1rem;border:1px solid var(--line);border-radius:.5rem}
-.search-results p{padding:.6rem 0;border-bottom:1px solid var(--line)}
-.search-results small{color:var(--muted)}
-/* 联系表单 */
-.contact-form label{display:block;margin:1rem 0;font-weight:600}
-.contact-form input,.contact-form textarea{width:100%;padding:.6em;margin-top:.4rem;
-  border:1px solid var(--line);border-radius:.5rem;font-size:1rem;font-family:inherit}
-.contact-form .btn{border:0;cursor:pointer;background:var(--primary);color:#fff;
-  padding:.7rem 2rem;border-radius:.5rem;font-size:1rem;margin-top:.5rem}
-.contact-form .btn:hover{background:var(--primary-dark)}
-.hint{background:var(--soft);border-radius:.5rem;padding:1rem 1.25rem}
-/* 移动端 */
-@media (max-width:640px){
-  .hero{padding:3rem 0}
-  .hero h1{font-size:1.8rem}
-  .cards{grid-template-columns:1fr}
-  .site-header nav a{margin-left:.9rem}
-}
 """,
         encoding="utf-8",
     )

@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}搜索 - {{ site.title }}{% endblock %}
+{% block content %}
+<div class="wrap doc">
+<h1>搜索</h1>
+<input id="q" class="search-box" placeholder="输入关键词…" autocomplete="off">
+<div id="results" class="search-results"></div>
+</div>
+<script>
+const LANG = document.documentElement.lang;
+let idx = [];
+fetch("/search.json").then(r => r.json()).then(d => {
+  idx = d.filter(e => !e.lang || e.lang === LANG);
+});
+document.getElementById("q").addEventListener("input", e => {
+  const q = e.target.value.trim().toLowerCase();
+  const box = document.getElementById("results");
+  if (!q) { box.innerHTML = ""; return; }
+  const hits = idx.filter(h =>
+    ((h.title || "") + " " + (h.text || "")).toLowerCase().includes(q)
+  ).slice(0, 20);
+  box.innerHTML = hits.length ? hits.map(h =>
+    '<p><a href="/' + h.url + '">' + h.title.replace(/</g, "&lt;") +
+    "</a><br><small>" + h.date + "</small></p>"
+  ).join("") : "<p>没有找到。</p>";
+});
+</script>
+{% endblock %}

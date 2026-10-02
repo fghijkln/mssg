@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}归档 - {{ site.title }}{% endblock %}
+{% block content %}
+<div class="wrap article">
+<h1>归档</h1>
+{% for g in groups %}
+<h2>{{ g.ym }}</h2>
+<ul class="post-list">
+{% for p in g.pages %}
+<li><span class="date">{{ p.date }}</span> <a href="/{{ p.url }}">{{ p.title }}</a></li>
+{% endfor %}
+</ul>
+{% endfor %}
+</div>
+{% endblock %}

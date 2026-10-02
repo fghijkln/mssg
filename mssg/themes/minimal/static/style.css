@@ -1,0 +1,68 @@
+/* minimal 主题：留白多、字大行稀，像 about.google 那种干净 */
+:root{--blue:#1a73e8;--ink:#202124;--muted:#5f6368;--line:#e8eaed}
+*{box-sizing:border-box}
+body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+  color:var(--ink);line-height:1.9;background:#fff}
+a{color:var(--blue);text-decoration:none}
+a:hover{text-decoration:underline}
+.wrap{max-width:60rem;margin:0 auto;padding:0 1.5rem}
+/* 顶栏 */
+.top{border-bottom:1px solid var(--line)}
+.bar{display:flex;align-items:center;justify-content:space-between;padding:1rem 1.5rem;flex-wrap:wrap;gap:.5rem}
+.brand{font-size:1.2rem;color:var(--ink);font-weight:500}
+.brand:hover{text-decoration:none}
+.top nav a{margin-left:1.4rem;color:var(--muted);font-size:.95rem}
+.top nav a:hover{color:var(--ink)}
+.lang-switch{margin-left:1.4rem;font-size:.85rem;white-space:nowrap}
+.lang-switch a{margin-left:.5rem}
+.lang-switch strong{margin-left:.5rem;color:var(--blue)}
+/* hero */
+.hero{padding:5rem 0 4rem;text-align:left}
+.hero h1{font-size:2.6rem;font-weight:400;margin:0 0 1rem;line-height:1.3}
+.lede{font-size:1.25rem;color:var(--muted);max-width:38rem;margin:0 0 2rem;font-weight:300}
+.btn{display:inline-block;background:var(--blue);color:#fff;padding:.7rem 1.8rem;
+  border-radius:2rem;margin-right:.8rem}
+.btn:hover{text-decoration:none;background:#1765cc}
+.btn.text{background:none;color:var(--blue);padding:.7rem .5rem}
+.btn.text:hover{background:#f6fafe}
+/* 特性 */
+.feats{display:grid;grid-template-columns:repeat(3,1fr);gap:2rem;padding:2rem 0 3rem}
+.feat h3{font-weight:500;margin:0 0 .4rem}
+.feat p{color:var(--muted);margin:0;font-size:.95rem}
+/* 列表 */
+.news{padding:2rem 0 4rem}
+.news h2,.doc h2{font-weight:500}
+.list{list-style:none;margin:0 0 1.5rem;padding:0}
+.list li{padding:.7rem 0;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;gap:1rem}
+.date{color:var(--muted);font-size:.9rem;white-space:nowrap}
+.doc{padding:3rem 0 4rem;max-width:44rem}
+.doc h1{font-weight:400;font-size:2rem}
+.meta{color:var(--muted);font-size:.9rem}
+/* 搜索 */
+.search-box{width:100%;padding:.8em 1.2em;font-size:1.05rem;border:1px solid var(--line);
+  border-radius:2rem;outline:none}
+.search-box:focus{border-color:var(--blue)}
+.search-results p{padding:.6rem 0;border-bottom:1px solid var(--line)}
+.search-results small{color:var(--muted)}
+/* 表单 */
+.contact-form label{display:block;margin:1.2rem 0;font-weight:500}
+.contact-form input,.contact-form textarea{width:100%;padding:.7em;margin-top:.4rem;
+  border:1px solid var(--line);border-radius:.5rem;font-size:1rem;font-family:inherit}
+.contact-form .btn{border:0;cursor:pointer;margin-top:.5rem}
+.hint{background:#f8f9fa;border-radius:.5rem;padding:1rem 1.25rem;color:var(--muted)}
+/* 页脚 */
+.foot{border-top:1px solid var(--line);padding:2rem 0;color:var(--muted);font-size:.9rem}
+/* 代码表格 */
+pre{background:#f8f9fa;padding:1em;overflow:auto;border-radius:.5rem}
+code{background:#f8f9fa;padding:0 .3em;border-radius:.25rem}
+pre code{background:none;padding:0}
+table{border-collapse:collapse;margin:1em 0}
+th,td{border:1px solid var(--line);padding:.4em .9em}
+blockquote{border-left:3px solid var(--blue);margin:1.5em 0;padding:.2em 0 .2em 1em;color:var(--muted)}
+.pager{display:flex;gap:1rem;align-items:center;margin:2rem 0}
+@media (max-width:640px){
+  .hero{padding:3rem 0 2.5rem}
+  .hero h1{font-size:2rem}
+  .feats{grid-template-columns:1fr}
+  .top nav a{margin-left:1rem}
+}

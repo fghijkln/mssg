@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}{{ page.title }} - {{ site.title }}{% endblock %}
+{% block meta %}<meta name="description" content="{{ page.summary_text }}">
+<meta property="og:title" content="{{ page.title }} - {{ site.title }}">
+<meta property="og:description" content="{{ page.summary_text }}">
+<meta property="og:type" content="article">
+{% endblock %}
+{% block content %}
+<div class="wrap doc">
+<h1>{{ page.title }}</h1>
+{% if page.date %}<p class="meta">{{ page.date }}</p>{% endif %}
+{{ page.content }}
+</div>
+{% endblock %}

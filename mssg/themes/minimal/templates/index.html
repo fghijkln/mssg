@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="hero">
+<div class="wrap">
+<h1>{{ site.hero.title }}</h1>
+<p class="lede">{{ site.hero.subtitle }}</p>
+<p>
+<a class="btn" href="{{ site.hero.cta_url }}">{{ site.hero.cta_text }}</a>
+{% if site.hero.cta2_text %}<a class="btn text" href="{{ site.hero.cta2_url }}">{{ site.hero.cta2_text }}</a>{% endif %}
+</p>
+</div>
+</section>
+{% if site.features %}
+<section class="wrap feats">
+{% for f in site.features %}
+<div class="feat"><h3>{{ f.title }}</h3><p>{{ f.text }}</p></div>
+{% endfor %}
+</section>
+{% endif %}
+<section class="wrap news" id="news">
+<h2>动态</h2>
+<ul class="list">
+{% for p in pages[:5] %}
+<li><a href="/{{ p.url }}">{{ p.title }}</a><span class="date">{{ p.date }}</span></li>
+{% endfor %}
+</ul>
+<p><a href="/archive.html">全部归档 →</a></p>
+{% if pagination.multiple %}
+<nav class="pager">
+{% if pagination.has_prev %}<a href="{{ pagination.prev_url }}">← 上一页</a>{% endif %}
+<span>{{ pagination.page }} / {{ pagination.total_pages }}</span>
+{% if pagination.has_next %}<a href="{{ pagination.next_url }}">下一页 →</a>{% endif %}
+</nav>
+{% endif %}
+</section>
+{% endblock %}
