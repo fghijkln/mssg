@@ -3,4 +3,4 @@
 自研 Markdown 子集解析器 + 自研模板引擎，只用 Python 标准库。
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"

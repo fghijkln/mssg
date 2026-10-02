@@ -315,3 +315,11 @@
   测试 76/76 全绿；fuzz 种子 271828，2000 用例 0 问题。
 - 提交并推送，push 前测试全绿。
 
+## 迭代 30 — 模板组合语义深度探测（约 20:00）
+
+- 手动探测 extends × include × block 组合：三级继承的 block 覆盖、
+  block 内的 include、父模板里的 include、非法 block 名 —— 全部符合预期。
+- 把两个此前未覆盖的组合沉淀为回归测试：
+  test_extends_three_levels、test_include_inside_block。
+- 测试 78/78 全绿。提交并推送，push 前测试全绿。
+
