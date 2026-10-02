@@ -457,6 +457,21 @@ class TestFrontMatter(unittest.TestCase):
         self.assertEqual(markdown.parse("A & B"), "<p>A &amp; B</p>")
         self.assertIn("&copy;", markdown.parse("x &copy; y"))
 
+    def test_helpers_unit(self):
+        # 纯函数直接单元测试
+        from mssg.site import _clean_title, _paginate, _atom_date, _tag_slug
+        from mssg.markdown import _escape_text
+
+        self.assertEqual(_clean_title("**b** and `c`"), "b and c")
+        self.assertEqual(_clean_title("[t](http://x)"), "t")
+        self.assertEqual(_escape_text("a &amp; b & c"), "a &amp; b &amp; c")
+        self.assertEqual(_paginate([1, 2, 3], 2), [[1, 2], [3]])
+        self.assertEqual(_paginate([1, 2], 0), [[1, 2]])
+        self.assertEqual(_atom_date("2026-01-02"), "2026-01-02T00:00:00Z")
+        self.assertEqual(_tag_slug("a/b"), "a-b")
+        self.assertEqual(_tag_slug("中文"), "中文")
+        self.assertEqual(_tag_slug(""), "tag")
+
     def test_empty_date_falls_back_to_mtime(self):
         # date: 留空时应回退到文件 mtime，而不是显示 []
         with tempfile.TemporaryDirectory() as tmp:
