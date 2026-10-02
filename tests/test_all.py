@@ -483,8 +483,23 @@ class TestBuild(unittest.TestCase):
             sm = (root / "public" / "sitemap.xml").read_text(encoding="utf-8")
             self.assertNotIn("gone.html", sm)
 
-    def test_sitemap_includes_archive_and_tags(self):
-        # 归档页与标签页也是可访问的 HTML，应计入 sitemap
+    def test_base_url_absolute_links(self):
+        # base_url 末尾斜杠不应导致双斜杠
+        with tempfile.TemporaryDirectory() as tmp:
+            root = new_site(os.path.join(tmp, "demo"))
+            toml = (root / "mssg.toml").read_text(encoding="utf-8")
+            (root / "mssg.toml").write_text(
+                toml.replace('base_url = ""', 'base_url = "https://example.com/blog/"'),
+                encoding="utf-8",
+            )
+            Site(root).build()
+            feed = (root / "public" / "feed.xml").read_text(encoding="utf-8")
+            self.assertIn("https://example.com/blog/feed.xml", feed)
+            self.assertNotIn("blog//", feed)
+            sm = (root / "public" / "sitemap.xml").read_text(encoding="utf-8")
+            self.assertIn("<loc>https://example.com/blog/index.html</loc>", sm)
+
+    def test_sitemap_includes_archive_and_tags(self):        # 归档页与标签页也是可访问的 HTML，应计入 sitemap
         with tempfile.TemporaryDirectory() as tmp:
             root = new_site(os.path.join(tmp, "demo"))
             Site(root).build()
