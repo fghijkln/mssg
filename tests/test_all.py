@@ -248,6 +248,49 @@ class TestTemplate(unittest.TestCase):
         with self.assertRaises(ValueError):
             template.render_template("page.html", {}, templates.get)
 
+    def test_no_hang_battery(self):
+        """防挂起电池：棘手模板组合在子进程中限时渲染。
+
+        若解析器某天又出现无限循环（如漏写 pos += 1），
+        这个测试会明确失败，而不是让整个套件卡死。
+        """
+        import subprocess
+
+        repo = str(Path(__file__).resolve().parent.parent)
+        lines = [
+            "import sys",
+            "sys.path.insert(0, %r)" % repo,
+            "from mssg import template",
+            "templates = {",
+            "    'a': 'A{% include \"b\" %}',",
+            "    'b': 'B{% for x in xs %}{{ x }}{% endfor %}',",
+            "    'c': '{% if a %}{% include \"b\" %}{% endif %}',",
+            "    'd': '{% block t %}{% include \"b\" %}{% endblock %}',",
+            "    'e': '{% for i in xs %}{% include \"f\" %}{% endfor %}',",
+            "    'f': '{% for j in ys %}{{ j }}{% endfor %}',",
+            "    'g': '{% include \"h\" %}',",
+            "    'h': '{% include \"g\" %}',",
+            "}",
+            "ctx = {'xs': [1, 2], 'ys': ['a'], 'a': True}",
+            "for name in 'abcdef':",
+            "    template.render_template(name, ctx, templates.get)",
+            "try:",
+            "    template.render_template('g', ctx, templates.get)",
+            "except ValueError:",
+            "    pass",
+            "else:",
+            "    raise SystemExit('cycle should raise')",
+            "print('BATTERY-OK')",
+        ]
+        proc = subprocess.run(
+            [sys.executable, "-c", "\n".join(lines)],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr[-500:])
+        self.assertIn("BATTERY-OK", proc.stdout)
+
 
 class TestFrontMatter(unittest.TestCase):
     def test_split(self):

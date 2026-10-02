@@ -199,3 +199,15 @@
   路线图 5 项标为完成，新增后续想法（include/分页/多语言）。
 - 测试 59/59 全绿。提交并推送。
 
+## 迭代 19 — 新功能 {% include %} + 抓到无限循环 bug（约 17:35）
+
+- 实现 `{% include "part.html" %}`：引入模板片段，使用当前上下文；
+  被引入的模板不能用 extends；include 循环检测；无 loader 时报明确错误。
+- **抓到 1 个严重自引入 bug**：include 分支漏写 `pos += 1`，导致 `_parse`
+  在同一 token 上无限循环，最终 C 栈溢出段错误 —— 测试套件卡死暴露了它。
+  教训：新增解析分支必须逐个核对 pos 推进（已审计其余分支全部正常）。
+- 新增测试 5 个：test_include、test_include_missing、test_include_needs_loader、
+  test_include_cycle、test_include_with_extends_error。
+- 测试 64/64 全绿（2.1s）；fuzz 种子 24680，2000 用例 0 问题；README 补充说明。
+- 提交 630d525 并推送，push 前测试全绿。
+
