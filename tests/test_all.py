@@ -758,16 +758,29 @@ class TestBuild(unittest.TestCase):
             self.assertIn("2026-10", html)
             self.assertIn("hello.html", html)
 
-    def test_chinese_tag_url_quoted(self):
-        import urllib.parse
-
+    def test_chinese_tag_url(self):
+        # 中文标签用原文做文件名（不用百分号编码，否则 HTTP 服务时 404）
         with tempfile.TemporaryDirectory() as tmp:
             root = new_site(os.path.join(tmp, "demo"))
             Site(root).build()
-            tag_page = root / "public" / "tags" / (
-                urllib.parse.quote("示例", safe="") + ".html"
-            )
+            tag_page = root / "public" / "tags" / "示例.html"
             self.assertTrue(tag_page.exists())
+
+    def test_tag_slug_collision(self):
+        # 不同标签撞 slug 时加后缀区分
+        with tempfile.TemporaryDirectory() as tmp:
+            root = new_site(os.path.join(tmp, "demo"))
+            (root / "content" / "a.md").write_text(
+                "---\ntitle: A\ndate: 2026-01-01\ntags: [a/b]\n---\n\nx\n",
+                encoding="utf-8",
+            )
+            (root / "content" / "b.md").write_text(
+                "---\ntitle: B\ndate: 2026-01-02\ntags: [a-b]\n---\n\nx\n",
+                encoding="utf-8",
+            )
+            Site(root).build()
+            self.assertTrue((root / "public" / "tags" / "a-b.html").exists())
+            self.assertTrue((root / "public" / "tags" / "a-b-2.html").exists())
 
     def test_feed(self):
         with tempfile.TemporaryDirectory() as tmp:

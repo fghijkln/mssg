@@ -685,3 +685,34 @@
 - 新增测试 test_unicode_key。测试 96/96 全绿（exit=0）。
 - 提交并推送。
 
+## 迭代 77 — 标量 tags 崩构建（约 16:10）
+
+- 发现**真 bug**：`tags: 5`（非列表）→ `_page_tags` 里 `for t in 5`
+  抛 TypeError，构建崩溃且信息无意义。
+- 修：非列表/字符串的标量视为单个标签。
+- 新增测试 test_scalar_tag。测试 97/97 全绿（exit=0）。
+- 提交并推送。
+
+## 迭代 78 — 第十三轮 markdown 审查：图片（约 16:15）
+
+- 5 组图片用例：标题跳过、引号/HTML 转义、空 alt、括号 URL+标题 ——
+  全部正确。
+- 无代码改动。
+
+## 迭代 79 — example feed 目检（约 16:18）
+
+- feed.xml：Atom 结构完整，entry 标题/链接/更新时间/内容齐全。
+- 无代码改动。
+
+## 迭代 80 — 第十一轮 template 审查：if/elif/else 链（约 16:22）
+
+- 5 组：多 elif 首真胜出、全假走 else、连续 if 独立、点号条件 ——
+  全部正确。
+- 无代码改动。
+
+## 迭代 81 — 脚手架复查（约 16:28）
+
+- new_site 生成的模板：base/page/index/tag/archive 均用 extends，
+  含 feed 链接与分页导航；mssg.toml 注释清晰。
+- 无代码改动。
+

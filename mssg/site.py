@@ -10,7 +10,6 @@ import time
 import tomllib
 from datetime import datetime, timezone
 from pathlib import Path
-from urllib.parse import quote
 from xml.sax.saxutils import escape as _xml_escape
 
 from . import markdown as _md
@@ -111,6 +110,17 @@ def _atom_date(value) -> str:
         except ValueError:
             continue
     return s
+
+
+def _tag_slug(tag: str) -> str:
+    """标签转 URL/文件名单：保留 Unicode 可读性，只中和路径分隔符。
+
+    不用百分号编码做文件名——编码后的文件名经 HTTP 服务器 URL 解码后
+    反而找不到文件（如 tags/%E6%BC%94.html 请求会被解码为 tags/演.html）。
+    """
+    slug = tag.replace("/", "-").replace("\\", "-").strip()
+    slug = "".join(c for c in slug if c.isprintable()).strip(".")
+    return slug or "tag"
 
 
 def _page_tags(page: dict) -> list:
@@ -409,11 +419,23 @@ class Site:
             for t in _page_tags(p):
                 by_tag.setdefault(t, []).append(p)
         made = set()
+        # 先算 slug：不同标签撞车时加 -2/-3 后缀区分
+        slugs: dict[str, str] = {}
+        used: set[str] = set()
+        for tag in sorted(by_tag):
+            base = _tag_slug(tag)
+            slug = base
+            n = 2
+            while slug in used:
+                slug = "%s-%d" % (base, n)
+                n += 1
+            used.add(slug)
+            slugs[tag] = slug
         for tag in sorted(by_tag):
             tpages = sorted(by_tag[tag], key=lambda p: p["date"], reverse=True)
             chunks = _paginate(tpages, per_page)
             total = len(chunks)
-            tag_q = quote(tag, safe="")
+            tag_q = slugs[tag]
             for i, chunk in enumerate(chunks, start=1):
                 if i == 1:
                     rel = "tags/%s.html" % tag_q
