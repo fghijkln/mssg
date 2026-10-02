@@ -5,4 +5,6 @@ dist/
 build/
 public/
 .mssg/
+tools/evolve/archive/
+tools/evolve/state.json
 fuzz_local.py
