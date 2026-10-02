@@ -196,6 +196,16 @@ class TestTemplate(unittest.TestCase):
         out = template.render("{% block t %}Hi{% endblock %}", {})
         self.assertEqual(out, "Hi")
 
+    def test_elif_else_after_else_error(self):
+        with self.assertRaises(ValueError):
+            template.render(
+                "{% if a %}A{% else %}B{% elif c %}C{% endif %}", {"a": 0}
+            )
+        with self.assertRaises(ValueError):
+            template.render(
+                "{% if a %}A{% else %}B{% else %}C{% endif %}", {"a": 0}
+            )
+
 
 class TestFrontMatter(unittest.TestCase):
     def test_split(self):

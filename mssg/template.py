@@ -248,6 +248,7 @@ def _parse(
             elif inner.startswith("if "):
                 branches = []
                 cond: str | None = inner[3:].strip()
+                seen_else = False
                 while True:
                     body, pos = _parse(tokens, pos + 1, ("elif", "else", "endif"), blocks)
                     branches.append((cond, body))
@@ -256,7 +257,10 @@ def _parse(
                     if kw2 == "endif":
                         pos += 1
                         break
+                    if kw2 in ("elif", "else") and seen_else:
+                        raise ValueError("else 之后不能再出现 elif/else")
                     if kw2 == "else":
+                        seen_else = True
                         cond = None
                     else:  # elif <cond>
                         cond = inner2[len("elif"):].strip()
