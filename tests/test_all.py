@@ -352,6 +352,31 @@ class TestBuild(unittest.TestCase):
             )
             self.assertTrue(tag_page.exists())
 
+    def test_feed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = new_site(os.path.join(tmp, "demo"))
+            Site(root).build()
+            feed = root / "public" / "feed.xml"
+            self.assertTrue(feed.exists())
+            xml = feed.read_text(encoding="utf-8")
+            self.assertIn("<feed", xml)
+            self.assertIn("你好，世界", xml)
+            self.assertIn("<updated>2026-10-02T00:00:00Z</updated>", xml)
+            # HTML 内容已转义进 XML
+            self.assertIn("&lt;h1&gt;", xml)
+
+    def test_feed_disabled(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = new_site(os.path.join(tmp, "demo"))
+            Site(root).build()
+            self.assertTrue((root / "public" / "feed.xml").exists())
+            (root / "mssg.toml").write_text(
+                '[site]\ntitle = "t"\n[build]\nfeed = false\n',
+                encoding="utf-8",
+            )
+            Site(root).build()
+            self.assertFalse((root / "public" / "feed.xml").exists())
+
 
 if __name__ == "__main__":
     unittest.main()

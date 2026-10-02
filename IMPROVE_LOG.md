@@ -86,3 +86,16 @@
 - 测试 46/46 全绿；fuzz 种子 4242，1500 用例 0 问题；README 补充草稿说明。
 - 提交并推送，push 前测试全绿。
 
+## 迭代 8 — 路线图③ 标签页与归档页（约 15:12）
+
+- front matter `tags: [a, b]`（或逗号字符串）→ 自动生成 `tags/<tag>.html`；
+  中文标签文件名做 URL 编码；无标签页面的标签被移除后旧文件自动清理。
+- 自动生成 `archive.html`，按日期年月倒序分组。
+- 模板：`tag.html`（变量 tag、pages）、`archive.html`（变量 groups，每组 ym/pages），
+  均可用模板继承；未提供模板时用内置兜底模板。
+- 配置 `[build] tag_pages / archive_page`（默认 true）可关闭；关闭后旧产物自动清理。
+- 脚手架：hello.md 加 tags 示例，新增 tag.html/archive.html（继承 base.html）。
+- 新增测试 4 个：test_tag_pages、test_tag_stale_cleanup、test_archive_page、test_chinese_tag_url_quoted。
+- 测试 50/50 全绿；fuzz 种子 8888，1500 用例 0 问题；README 补充说明。
+- 提交并推送，push 前测试全绿。
+

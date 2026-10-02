@@ -8,8 +8,10 @@ import re
 import shutil
 import time
 import tomllib
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import quote
+from xml.sax.saxutils import escape as _xml_escape
 
 from . import markdown as _md
 from . import template as _tpl
@@ -51,6 +53,18 @@ def _is_draft(value) -> bool:
     if isinstance(value, str):
         return value.strip().lower() in ("true", "yes", "1")
     return False
+
+
+def _atom_date(value) -> str:
+    """日期转 RFC3339；无法解析则原样输出。"""
+    s = str(value).strip()
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d"):
+        try:
+            dt = datetime.strptime(s, fmt)
+            return dt.replace(tzinfo=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        except ValueError:
+            continue
+    return s
 
 
 def _page_tags(page: dict) -> list:
@@ -160,6 +174,13 @@ class Site:
             cache["archive_files"] = [archive_rel]
         elif cache.get("archive_files"):
             self._clean_stale(output_dir, cache.pop("archive_files"), set())
+
+        if b.get("feed", True):
+            feed_rel = self._render_feed(pages, output_dir, rebuilt_any)
+            self._clean_stale(output_dir, cache.get("feed_files", []), {feed_rel})
+            cache["feed_files"] = [feed_rel]
+        elif cache.get("feed_files"):
+            self._clean_stale(output_dir, cache.pop("feed_files"), set())
 
         if static_dir.is_dir():
             new_static = set()
@@ -297,9 +318,61 @@ class Site:
             dest.write_text(out, encoding="utf-8")
         return "archive.html"
 
+    def _render_feed(self, pages: list, output_dir: Path, rebuilt_any: bool) -> str:
+        """生成 Atom 1.0 订阅 feed.xml（最近 20 篇），返回相对路径。"""
+        base = self.cfg["site"].get("base_url", "").rstrip("/")
+        entries = []
+        for p in pages[:20]:
+            url = (base + "/" + p["url"]) if base else "/" + p["url"]
+            entries.append(
+                "  <entry>\n"
+                "    <title>%s</title>\n"
+                '    <link href="%s"/>\n'
+                "    <id>%s</id>\n"
+                "    <updated>%s</updated>\n"
+                '    <content type="html">%s</content>\n'
+                "  </entry>"
+                % (
+                    _xml_escape(str(p["title"])),
+                    _xml_escape(url, {'"': "&quot;"}),
+                    _xml_escape(url),
+                    _atom_date(p["date"]),
+                    _xml_escape(str(p["content"])),
+                )
+            )
+        if pages:
+            updated = _atom_date(pages[0]["date"])
+        else:
+            updated = _atom_date(datetime.now(timezone.utc).strftime("%Y-%m-%d"))
+        feed_url = (base + "/feed.xml") if base else "/feed.xml"
+        site_id = base if base else "/"
+        out = (
+            '<?xml version="1.0" encoding="utf-8"?>\n'
+            '<feed xmlns="http://www.w3.org/2005/Atom">\n'
+            "  <title>%s</title>\n"
+            '  <link href="%s"/>\n'
+            '  <link rel="self" href="%s"/>\n'
+            "  <updated>%s</updated>\n"
+            "  <id>%s</id>\n"
+            "%s\n"
+            "</feed>\n"
+            % (
+                _xml_escape(str(self.cfg["site"].get("title", ""))),
+                _xml_escape(feed_url, {'"': "&quot;"}),
+                _xml_escape(feed_url, {'"': "&quot;"}),
+                updated,
+                _xml_escape(site_id),
+                "\n".join(entries),
+            )
+        )
+        dest = output_dir / "feed.xml"
+        if rebuilt_any or not dest.exists():
+            dest.write_text(out, encoding="utf-8")
+        return "feed.xml"
+
     @staticmethod
     def _clean_stale(output_dir: Path, old_files: list, made: set) -> None:
-        """删除旧构建产物中已不再生成的残留文件（含路径穿越保护）。"""
+        """删除旧构建产物中已不再生成的残留文件（含路径穿越保护）。"""        """删除旧构建产物中已不再生成的残留文件（含路径穿越保护）。"""
         for stale in set(old_files) - made:
             stale_path = output_dir / stale
             if stale_path.is_file():
@@ -341,7 +414,9 @@ def new_site(name: str | Path) -> Path:
         '<html lang="zh-CN">\n<head>\n<meta charset="utf-8">\n'
         '<meta name="viewport" content="width=device-width, initial-scale=1">\n'
         "<title>{% block title %}{{ site.title }}{% endblock %}</title>\n"
-        '<link rel="stylesheet" href="/style.css">\n</head>\n<body>\n'
+        '<link rel="stylesheet" href="/style.css">\n'
+        '<link rel="alternate" type="application/atom+xml" '
+        'title="{{ site.title }}" href="/feed.xml">\n</head>\n<body>\n'
         '<header><h1><a href="/">{{ site.title }}</a></h1></header>\n'
         "<main>{% block content %}{% endblock %}</main>\n"
         "<footer><p>由 mssg 生成</p></footer>\n</body>\n</html>\n",
