@@ -559,3 +559,25 @@
   index/archive/feed/sitemap，无崩溃。符合预期，无需改动。
 - 无代码改动。
 
+## 迭代 59 — 模板指纹漏文件名（约 15:35）
+
+- 发现**真 bug**：模板指纹只算内容不算文件名，`page.html` 重命名为
+  `page2.html`（排序位置不变）时指纹不变 → 不触发重建 → 站点残留旧输出。
+  （偶然情况下排序位置变化会误触发，行为不一致。）
+- 修：指纹改为 `文件名 + \x00 + 内容` 拼接。
+- 新增测试 test_template_rename_triggers_rebuild。
+  测试 91/91 全绿（exit=0）。提交并推送。
+
+## 迭代 60 — serve --drafts E2E（约 15:40）
+
+- `serve --drafts` 下 draft.html 返回 200，hello.html 200 —— 草稿预览正常。
+  （首测误报 404：同时起了两个 serve 共享输出目录，无 drafts 的删掉了
+  draft.html，属测试方法问题，非 bug。）
+- 无代码改动。
+
+## 迭代 61 — 输出 HTML 目检（约 15:45）
+
+- 目检 example/index.html：doctype/lang/viewport/feed 链接齐全，
+  分页导航"1 / 2 + 下一页"正确。无问题。
+- 无代码改动。
+
