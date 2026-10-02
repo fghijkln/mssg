@@ -17,7 +17,7 @@ from .site import Site, new_site
 def _cmd_new(args) -> int:
     try:
         root = new_site(args.name)
-    except FileExistsError as e:
+    except OSError as e:
         print("错误：%s" % e)
         return 1
     print("已创建站点：%s" % root)
