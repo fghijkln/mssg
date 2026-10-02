@@ -1,4 +1,4 @@
-"""mssg 命令行入口：new / build / serve。"""
+"""mssg 命令行入口：new / build / serve / clean。"""
 
 from __future__ import annotations
 
@@ -6,8 +6,10 @@ import argparse
 import functools
 import http.server
 import os
+import shutil
 import threading
 import time
+from pathlib import Path
 
 from .site import Site, new_site
 
@@ -96,6 +98,23 @@ def _watch_and_rebuild(site: Site, args, stop_event: threading.Event) -> None:
             print("[%s] 构建失败：%s（继续监听）" % (now, e), flush=True)
 
 
+def _cmd_clean(args) -> int:
+    site = Site(".", config=args.config)
+    out = Path(site.cfg["build"]["output_dir"])
+    try:
+        resolved = out.resolve()
+        root_resolved = Path(".").resolve()
+    except OSError as e:
+        print("错误：%s" % e)
+        return 1
+    if resolved == root_resolved:
+        print("错误：拒绝清空站点根目录（output_dir 不能指向站点根）")
+        return 1
+    shutil.rmtree(resolved, ignore_errors=True)
+    print("已清空输出目录：%s" % out)
+    return 0
+
+
 def _cmd_serve(args) -> int:
     try:
         site = Site(".", config=args.config)
@@ -157,6 +176,10 @@ def main() -> int:
     p_serve.add_argument("--drafts", action="store_true", help="包含草稿（draft: true）")
     p_serve.add_argument("--no-watch", action="store_true", help="关闭文件监听自动重建")
     p_serve.set_defaults(func=_cmd_serve)
+
+    p_clean = sub.add_parser("clean", help="清空构建输出目录")
+    p_clean.add_argument("-c", "--config", default="mssg.toml")
+    p_clean.set_defaults(func=_cmd_clean)
 
     args = parser.parse_args()
     return args.func(args)

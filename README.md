@@ -81,6 +81,7 @@ per_page = 0                # 首页/标签页每页篇数；0 为不分页
 mssg new <目录>              # 生成站点脚手架（非空目录拒绝覆盖）
 mssg build [--force] [--drafts] [-c mssg.toml]
 mssg serve [--port 8000] [--drafts] [--no-watch] [-c mssg.toml]
+mssg clean [-c mssg.toml]       # 清空构建输出目录（指向站点根时拒绝执行）
 mssg --version
 ```
 

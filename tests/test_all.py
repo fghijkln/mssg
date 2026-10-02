@@ -721,6 +721,37 @@ class TestCLI(unittest.TestCase):
             root = new_site(os.path.join(tmp, "demo"))
             self.assertEqual(self._run_build(root), 0)
 
+    def test_clean(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = new_site(os.path.join(tmp, "demo"))
+            Site(root).build()
+            self.assertTrue((root / "public").exists())
+            old = os.getcwd()
+            os.chdir(root)
+            try:
+                self.assertEqual(
+                    cli._cmd_clean(argparse.Namespace(config="mssg.toml")), 0
+                )
+            finally:
+                os.chdir(old)
+            self.assertFalse((root / "public").exists())
+
+    def test_clean_refuses_site_root(self):
+        # output_dir 指向站点根时拒绝清空，防止误删
+        with tempfile.TemporaryDirectory() as tmp:
+            root = new_site(os.path.join(tmp, "demo"))
+            with open(root / "mssg.toml", "a", encoding="utf-8") as f:
+                f.write('output_dir = "."\n')
+            old = os.getcwd()
+            os.chdir(root)
+            try:
+                self.assertEqual(
+                    cli._cmd_clean(argparse.Namespace(config="mssg.toml")), 1
+                )
+            finally:
+                os.chdir(old)
+            self.assertTrue((root / "content").exists())
+
     def test_build_reloads_config(self):
         # 同一个 Site 对象：改 mssg.toml 后再次 build 要用新配置
         # （serve 的文件监听就靠这个）
