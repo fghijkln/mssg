@@ -171,8 +171,13 @@ class Site:
             force = True
 
         templates = self._load_templates(template_dir)
+        # 指纹计入文件名 + 内容：重命名模板也能触发重建
         tpl_digest = (
-            hashlib.sha1("".join(templates.values()).encode("utf-8")).hexdigest()
+            hashlib.sha1(
+                "".join(
+                    "%s\x00%s" % (name, src) for name, src in templates.items()
+                ).encode("utf-8")
+            ).hexdigest()
             if templates
             else ""
         )

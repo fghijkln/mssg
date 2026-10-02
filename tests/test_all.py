@@ -590,6 +590,17 @@ class TestBuild(unittest.TestCase):
             self.assertNotIn("/page/2.html", sm)
             self.assertEqual(sm.count("<loc>/index.html</loc>"), 1)
 
+    def test_template_rename_triggers_rebuild(self):
+        # 模板重命名（内容不变、排序位置不变）也要触发重建
+        with tempfile.TemporaryDirectory() as tmp:
+            root = new_site(os.path.join(tmp, "demo"))
+            Site(root).build()
+            self.assertFalse(Site(root).build()["rebuilt"])
+            (root / "templates" / "page.html").rename(
+                root / "templates" / "page2.html"
+            )
+            self.assertTrue(Site(root).build()["rebuilt"])
+
     def test_pagination_per_page_change_cleans(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = self._make_paged_site(tmp, n=5, per_page=2)
