@@ -496,6 +496,29 @@ class TestBuild(unittest.TestCase):
             sm = (root / "public" / "sitemap.xml").read_text(encoding="utf-8")
             self.assertNotIn("gone.html", sm)
 
+    def test_feed_escaping_levels(self):
+        # feed 里 HTML 内容应双重转义：XML 解析后得到合法的单重转义 HTML
+        import xml.etree.ElementTree as ET
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = new_site(os.path.join(tmp, "demo"))
+            (root / "content" / "a.md").write_text(
+                "---\ntitle: A&B\ndate: 2026-01-01\n---\n\nFish & Chips\n",
+                encoding="utf-8",
+            )
+            Site(root).build()
+            feed = (root / "public" / "feed.xml").read_text(encoding="utf-8")
+            self.assertIn("Fish &amp;amp; Chips", feed)
+            t = ET.fromstring(feed)
+            ns = {"a": "http://www.w3.org/2005/Atom"}
+            entries = t.findall("a:entry", ns)
+            mine = [
+                e for e in entries if e.find("a:title", ns).text == "A&B"
+            ][0]
+            self.assertEqual(
+                mine.find("a:content", ns).text, "<p>Fish &amp; Chips</p>"
+            )
+
     def test_base_url_absolute_links(self):
         # base_url 末尾斜杠不应导致双斜杠
         with tempfile.TemporaryDirectory() as tmp:
