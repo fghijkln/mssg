@@ -432,6 +432,12 @@ class TestFrontMatter(unittest.TestCase):
         meta, _ = split("---\ntags: [#x, a]\n---\n")
         self.assertEqual(meta["tags"], ["a"])
 
+    def test_unicode_key(self):
+        # 非 ASCII 键名（如中文）也应解析
+        meta, _ = split("---\n标题: 你好\ntitle: T\n---\n")
+        self.assertEqual(meta["标题"], "你好")
+        self.assertEqual(meta["title"], "T")
+
     def test_quoted_comma_list(self):
         meta, _ = split('---\ntags: ["a,b", c]\n---\n')
         self.assertEqual(meta["tags"], ["a,b", "c"])

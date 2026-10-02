@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import re
 
-_KEYVAL = re.compile(r"^([A-Za-z0-9_-]+)\s*:\s*(.*)$")
+_KEYVAL = re.compile(r"^([\w-]+)\s*:\s*(.*)$")
 
 
 def split(text: str) -> tuple[dict, str]:
