@@ -157,6 +157,21 @@ class TestFrontMatter(unittest.TestCase):
         self.assertEqual(meta["title"], "T")
         self.assertNotIn("\r", body)
 
+    def test_comment_stripped(self):
+        meta, _ = split("---\ntitle: hi # 你好\n---\n")
+        self.assertEqual(meta["title"], "hi")
+        # 引号内的 # 不是注释
+        meta, _ = split('---\ntitle: "a # b"\n---\n')
+        self.assertEqual(meta["title"], "a # b")
+
+    def test_quoted_comma_list(self):
+        meta, _ = split('---\ntags: ["a,b", c]\n---\n')
+        self.assertEqual(meta["tags"], ["a,b", "c"])
+
+    def test_multiline_list(self):
+        meta, _ = split("---\ntags:\n  - x\n  - y\n---\n")
+        self.assertEqual(meta["tags"], ["x", "y"])
+
 
 class TestBuild(unittest.TestCase):
     def test_full_build(self):

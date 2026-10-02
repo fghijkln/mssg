@@ -17,3 +17,14 @@
 - fuzz：新建 fuzz_local.py（gitignore，不入库），3 个种子共 7000 用例，0 崩溃 0 挂起；195KB 大输入解析 0.09s。
 - 提交 e98a0e4 并推送，push 前测试全绿。
 
+## 迭代 2 — template.py 审查（约 14:16）
+
+- 测试：30/30 全绿。
+- 审查发现 2 个问题：
+  1. `{# 注释 #}` 不被识别，会原样泄漏进输出 → 修：词法层新增注释 token，解析时丢弃。
+  2. 3000 层 `{% if %}` 嵌套抛裸 RecursionError → 修：render() 捕获后转为明确的 ValueError（"模板嵌套过深"）。
+- 验证通过：嵌套 for 循环 `{% for i %}{% for j %}` 正常；未闭合 `{{` 按文本保留。
+- 新增测试 4 个：test_comment、test_nested_for、test_deep_nesting_clear_error、test_unclosed_var_kept。
+- fuzz：种子 99，2000 用例，0 问题。
+- 提交并推送，push 前测试全绿。
+

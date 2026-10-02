@@ -49,14 +49,10 @@ def _parse(src: str) -> dict:
                 data[key] = []
                 current_key = key
             elif val.startswith("[") and val.endswith("]"):
-                data[key] = [
-                    _coerce(v.strip())
-                    for v in val[1:-1].split(",")
-                    if v.strip()
-                ]
+                data[key] = _split_list(val[1:-1])
                 current_key = None
             else:
-                data[key] = _coerce(val)
+                data[key] = _coerce(_strip_comment(val))
                 current_key = None
         elif (
             line.strip().startswith("- ")
@@ -67,6 +63,50 @@ def _parse(src: str) -> dict:
         else:
             current_key = None
     return data
+
+
+def _strip_comment(val: str) -> str:
+    """去掉引号外的行尾注释（` # ...`），引号内的 # 保留。"""
+    in_single = in_double = False
+    for i, ch in enumerate(val):
+        if ch == "'" and not in_double:
+            in_single = not in_single
+        elif ch == '"' and not in_single:
+            in_double = not in_double
+        elif (
+            ch == "#"
+            and not in_single
+            and not in_double
+            and i > 0
+            and val[i - 1] in " \t"
+        ):
+            return val[:i].rstrip()
+    return val
+
+
+def _split_list(inner: str) -> list:
+    """切分行内列表，引号内的逗号不分割。"""
+    items: list[str] = []
+    buf: list[str] = []
+    in_single = in_double = False
+    for ch in inner:
+        if ch == "'" and not in_double:
+            in_single = not in_single
+            buf.append(ch)
+        elif ch == '"' and not in_single:
+            in_double = not in_double
+            buf.append(ch)
+        elif ch == "," and not in_single and not in_double:
+            items.append("".join(buf))
+            buf = []
+        else:
+            buf.append(ch)
+    items.append("".join(buf))
+    return [
+        _coerce(_strip_comment(item.strip()))
+        for item in items
+        if item.strip()
+    ]
 
 
 def _coerce(value: str):
