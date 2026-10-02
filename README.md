@@ -57,6 +57,9 @@ ATX 标题、段落、`**粗体**`、`*斜体*`、`` `行内代码` ``、`[链�
 - `{% for p in pages %} ... {% endfor %}` —— 循环，体内可用 `loop.index` / `loop.index0`
 - `{% if x %} ... {% elif y %} ... {% else %} ... {% endif %}` —— 条件，
   支持 `not x`、`a == b`、`a != b`
+- `{# ... #}` —— 注释
+- `{% extends "base.html" %}` + `{% block name %} ... {% endblock %}` —— 模板继承
+  （extends 必须为模板的第一个标签；子模板的 block 覆盖父模板；支持多级继承）
 
 模板可用变量：`site`（配置）、`page`（当前页面：title/date/content/url + front matter
 全部字段）、`pages`（首页：全部页面，按日期倒序）。

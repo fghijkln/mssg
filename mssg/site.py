@@ -163,30 +163,35 @@ class Site:
         return m.group(1).strip() if m else ""
 
     def _render_page(self, page: dict, templates: dict, out_path: Path) -> None:
-        tpl = templates.get(
-            str(page.get("template", "page.html")),
-            "<!doctype html><html><head><meta charset=utf-8>"
-            "<title>{{ page.title }}</title></head>"
-            "<body>{{ page.content }}</body></html>",
-        )
+        tpl_name = str(page.get("template", "page.html"))
         ctx = {"site": self.cfg["site"], "page": page}
+        if tpl_name in templates:
+            out = _tpl.render_template(tpl_name, ctx, templates.get)
+        else:
+            out = _tpl.render(
+                "<!doctype html><html><head><meta charset=utf-8>"
+                "<title>{{ page.title }}</title></head>"
+                "<body>{{ page.content }}</body></html>",
+                ctx,
+            )
         out_path.parent.mkdir(parents=True, exist_ok=True)
-        out_path.write_text(_tpl.render(tpl, ctx), encoding="utf-8")
+        out_path.write_text(out, encoding="utf-8")
 
     def _render_index(self, pages: list, templates: dict, output_dir: Path) -> None:
-        tpl = templates.get(
-            "index.html",
-            "<!doctype html><html><head><meta charset=utf-8>"
-            "<title>{{ site.title }}</title></head><body>"
-            "<h1>{{ site.title }}</h1><ul>"
-            "{% for p in pages %}"
-            '<li>{{ p.date }} <a href="/{{ p.url }}">{{ p.title }}</a></li>'
-            "{% endfor %}</ul></body></html>",
-        )
         ctx = {"site": self.cfg["site"], "pages": pages}
-        (output_dir / "index.html").write_text(
-            _tpl.render(tpl, ctx), encoding="utf-8"
-        )
+        if "index.html" in templates:
+            out = _tpl.render_template("index.html", ctx, templates.get)
+        else:
+            out = _tpl.render(
+                "<!doctype html><html><head><meta charset=utf-8>"
+                "<title>{{ site.title }}</title></head><body>"
+                "<h1>{{ site.title }}</h1><ul>"
+                "{% for p in pages %}"
+                '<li>{{ p.date }} <a href="/{{ p.url }}">{{ p.title }}</a></li>'
+                "{% endfor %}</ul></body></html>",
+                ctx,
+            )
+        (output_dir / "index.html").write_text(out, encoding="utf-8")
 
     @staticmethod
     def _load_cache(path: Path) -> dict:
@@ -215,29 +220,32 @@ def new_site(name: str | Path) -> Path:
         encoding="utf-8",
     )
 
-    (root / "templates" / "page.html").write_text(
+    (root / "templates" / "base.html").write_text(
         "<!doctype html>\n"
         '<html lang="zh-CN">\n<head>\n<meta charset="utf-8">\n'
         '<meta name="viewport" content="width=device-width, initial-scale=1">\n'
-        "<title>{{ page.title }} - {{ site.title }}</title>\n"
+        "<title>{% block title %}{{ site.title }}{% endblock %}</title>\n"
         '<link rel="stylesheet" href="/style.css">\n</head>\n<body>\n'
         '<header><h1><a href="/">{{ site.title }}</a></h1></header>\n'
-        "<main>\n<h2>{{ page.title }}</h2>\n"
-        "{% if page.date %}<p class=meta>{{ page.date }}</p>{% endif %}\n"
-        "{{ page.content }}\n</main>\n"
+        "<main>{% block content %}{% endblock %}</main>\n"
         "<footer><p>由 mssg 生成</p></footer>\n</body>\n</html>\n",
         encoding="utf-8",
     )
+    (root / "templates" / "page.html").write_text(
+        '{% extends "base.html" %}\n'
+        "{% block title %}{{ page.title }} - {{ site.title }}{% endblock %}\n"
+        "{% block content %}\n<h2>{{ page.title }}</h2>\n"
+        "{% if page.date %}<p class=meta>{{ page.date }}</p>{% endif %}\n"
+        "{{ page.content }}\n{% endblock %}\n",
+        encoding="utf-8",
+    )
     (root / "templates" / "index.html").write_text(
-        "<!doctype html>\n"
-        '<html lang="zh-CN">\n<head>\n<meta charset="utf-8">\n'
-        '<meta name="viewport" content="width=device-width, initial-scale=1">\n'
-        "<title>{{ site.title }}</title>\n"
-        '<link rel="stylesheet" href="/style.css">\n</head>\n<body>\n'
-        "<h1>{{ site.title }}</h1>\n<ul>\n"
+        '{% extends "base.html" %}\n'
+        "{% block title %}{{ site.title }}{% endblock %}\n"
+        "{% block content %}\n<h1>{{ site.title }}</h1>\n<ul>\n"
         "{% for p in pages %}\n"
         '<li>{{ p.date }} <a href="/{{ p.url }}">{{ p.title }}</a></li>\n'
-        "{% endfor %}\n</ul>\n</body>\n</html>\n",
+        "{% endfor %}\n</ul>\n{% endblock %}\n",
         encoding="utf-8",
     )
     (root / "content" / "hello.md").write_text(

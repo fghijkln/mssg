@@ -136,6 +136,52 @@ class TestTemplate(unittest.TestCase):
         # 未闭合的 {{ 按普通文本保留
         self.assertEqual(template.render("a {{ b", {}), "a {{ b")
 
+    def test_extends(self):
+        templates = {
+            "base.html": (
+                "<title>{% block t %}B{% endblock %}</title>"
+                "{% block c %}C{% endblock %}"
+            ),
+            "page.html": '{% extends "base.html" %}{% block t %}P{% endblock %}',
+        }
+        out = template.render_template("page.html", {}, templates.get)
+        self.assertEqual(out, "<title>P</title>C")
+
+    def test_extends_multilevel(self):
+        templates = {
+            "a.html": "A{% block x %}ax{% endblock %}",
+            "b.html": '{% extends "a.html" %}{% block x %}bx{% endblock %}',
+            "c.html": '{% extends "b.html" %}{% block x %}cx{% endblock %}',
+        }
+        out = template.render_template("c.html", {}, templates.get)
+        self.assertEqual(out, "Acx")
+
+    def test_extends_missing_parent(self):
+        with self.assertRaises(ValueError):
+            template.render_template(
+                "x.html", {}, lambda n: '{% extends "nope.html" %}'
+            )
+
+    def test_extends_cycle(self):
+        def loader(n):
+            return (
+                '{% extends "b.html" %}'
+                if n == "a.html"
+                else '{% extends "a.html" %}'
+            )
+
+        with self.assertRaises(ValueError):
+            template.render_template("a.html", {}, loader)
+
+    def test_extends_not_first_tag(self):
+        with self.assertRaises(ValueError):
+            template.render("{{ x }}{% extends \"b.html\" %}", {})
+
+    def test_block_without_extends(self):
+        # 无继承时 block 按自身内容渲染
+        out = template.render("{% block t %}Hi{% endblock %}", {})
+        self.assertEqual(out, "Hi")
+
 
 class TestFrontMatter(unittest.TestCase):
     def test_split(self):
