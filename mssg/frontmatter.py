@@ -59,7 +59,9 @@ def _parse(src: str) -> dict:
             and current_key is not None
             and isinstance(data.get(current_key), list)
         ):
-            data[current_key].append(_coerce(line.strip()[2:].strip()))
+            data[current_key].append(
+                _coerce(_strip_comment(line.strip()[2:].strip()))
+            )
         else:
             current_key = None
     return data

@@ -219,3 +219,14 @@
   而不是卡死整个套件。
 - 测试 65/65 全绿（2.2s）。提交 之后并推送，push 前测试全绿。
 
+## 迭代 21 — 第三轮 markdown 审查：属性注入（约 17:55）
+
+- 第三轮审查 `_inline` 发现**真 bug**：`html.escape(quote=False)` 不转义引号，
+  而图片 alt/src、链接 href 直接拼进双引号属性 ——
+  `![a"onload="x](u)` 会生成真正的 onload 属性（XSS 级注入）。
+- 修：改用 `html.escape(text)`（默认转义引号）；捕获组已转义，直接拼接即安全。
+  验证：URL 中的 `&` 仍正确转成 `&amp;`，行内代码/粗体内的引号正常显示。
+- 另修正模块 docstring"一层嵌套"的过时描述。
+- 新增测试 test_inline_quotes_escaped。测试 66/66 全绿（2.1s）。
+- 提交并推送，push 前测试全绿。
+

@@ -339,6 +339,11 @@ class TestFrontMatter(unittest.TestCase):
         meta, _ = split("---\ntags:\n  - x\n  - y\n---\n")
         self.assertEqual(meta["tags"], ["x", "y"])
 
+    def test_multiline_list_comment_stripped(self):
+        # 多行列表项的行尾注释也要剥离，与行内列表保持一致
+        meta, _ = split("---\ntags:\n  - a # 注释\n  - 'b # c'\n---\n")
+        self.assertEqual(meta["tags"], ["a", "b # c"])
+
 
 class TestBuild(unittest.TestCase):
     def test_full_build(self):
