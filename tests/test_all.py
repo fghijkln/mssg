@@ -850,6 +850,14 @@ class TestCLI(unittest.TestCase):
                 os.chdir(old)
             self.assertFalse((root / "public").exists())
 
+    def test_new_rejects_existing_file(self):
+        # new 的目标是已存在文件时，应报明确错误而非 traceback
+        with tempfile.TemporaryDirectory() as tmp:
+            f = os.path.join(tmp, "myfile")
+            Path(f).write_text("x", encoding="utf-8")
+            with self.assertRaises(FileExistsError):
+                new_site(f)
+
     def test_clean_refuses_site_root(self):
         # output_dir 指向站点根时拒绝清空，防止误删
         with tempfile.TemporaryDirectory() as tmp:

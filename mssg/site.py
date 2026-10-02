@@ -587,6 +587,8 @@ class Site:
 def new_site(name: str | Path) -> Path:
     """生成站点脚手架，返回站点根目录。目标为非空目录时拒绝覆盖。"""
     root = Path(name)
+    if root.is_file():
+        raise FileExistsError("目标已存在且为文件，拒绝覆盖：%s" % root)
     if root.exists() and any(root.iterdir()):
         raise FileExistsError("目录已存在且非空，拒绝覆盖：%s" % root)
     (root / "content").mkdir(parents=True, exist_ok=True)
