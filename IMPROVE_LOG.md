@@ -38,3 +38,16 @@
 - fuzz：种子 1234，2000 用例，0 问题。
 - 提交并推送，push 前测试全绿。
 
+## 迭代 4 — site.py 审查（约 14:27）
+
+- 测试：37/37 全绿。
+- 审查发现 4 个问题：
+  1. 带 UTF-8 BOM 的 Markdown 文件，front matter 识别失败 → 修：`_read_page` 改用 utf-8-sig 读取。
+  2. content/index.md 生成的 index.html 会被自动索引覆盖 → 修：存在 url 为 index.html 的页面时跳过自动索引。
+  3. static/ 里删除的文件会残留在输出目录 → 修：构建时对比缓存，清理孤儿文件（含路径穿越保护）。
+  4. `mssg new` 会静默覆盖非空目录 → 修：非空目录抛 FileExistsError，CLI 友好提示并返回 1。
+- 另：构建后清理已删除页面的残留缓存键。
+- 新增测试 4 个：test_bom、test_content_index_wins、test_static_orphan_cleanup、test_new_site_refuses_nonempty。
+- fuzz：种子 555，2000 用例，0 问题。
+- 提交并推送，push 前测试全绿。
+

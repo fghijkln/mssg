@@ -44,7 +44,11 @@ def _cmd_serve(args) -> int:
     handler = functools.partial(
         http.server.SimpleHTTPRequestHandler, directory=output_dir
     )
-    server = http.server.ThreadingHTTPServer(("127.0.0.1", args.port), handler)
+    try:
+        server = http.server.ThreadingHTTPServer(("127.0.0.1", args.port), handler)
+    except OSError as e:
+        print("错误：无法监听端口 %d（%s）" % (args.port, e))
+        return 1
     print("本地预览：http://127.0.0.1:%d/ （Ctrl-C 退出）" % args.port)
     try:
         server.serve_forever()
@@ -54,8 +58,13 @@ def _cmd_serve(args) -> int:
 
 
 def main() -> int:
+    from . import __version__
+
     parser = argparse.ArgumentParser(
         prog="mssg", description="极简零依赖静态站点生成器"
+    )
+    parser.add_argument(
+        "-V", "--version", action="version", version="mssg %s" % __version__
     )
     sub = parser.add_subparsers(dest="cmd", required=True)
 
