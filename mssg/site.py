@@ -17,6 +17,14 @@ from . import template as _tpl
 from .frontmatter import split as _split_fm
 
 _FIRST_HEADING = re.compile(r"^#{1,6}\s+(.+?)\s*#*\s*$", re.M)
+_TITLE_TAG_RE = re.compile(r"<[^>]*>")
+
+
+def _clean_title(md_text: str) -> str:
+    """从 Markdown 标题行提取纯文本（去掉 ** 等行内标记）。"""
+    html = _md.parse(md_text)
+    plain = _TITLE_TAG_RE.sub("", html)
+    return plain.strip()
 
 _PAGINATION_NAV = (
     "{% if pagination.multiple %}<nav>"
@@ -357,7 +365,7 @@ class Site:
     @staticmethod
     def _first_heading(body: str) -> str:
         m = _FIRST_HEADING.search(body)
-        return m.group(1).strip() if m else ""
+        return _clean_title(m.group(1)) if m else ""
 
     def _render_page(self, page: dict, templates: dict, out_path: Path) -> None:
         tpl_name = str(page.get("template", "page.html"))
