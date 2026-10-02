@@ -467,8 +467,16 @@ class TestBuild(unittest.TestCase):
             sm = (root / "public" / "sitemap.xml").read_text(encoding="utf-8")
             self.assertNotIn("gone.html", sm)
 
-    def test_sitemap_no_duplicate_index(self):
-        # content/index.md 存在时，sitemap 里 index.html 只出现一次
+    def test_sitemap_includes_archive_and_tags(self):
+        # 归档页与标签页也是可访问的 HTML，应计入 sitemap
+        with tempfile.TemporaryDirectory() as tmp:
+            root = new_site(os.path.join(tmp, "demo"))
+            Site(root).build()
+            sm = (root / "public" / "sitemap.xml").read_text(encoding="utf-8")
+            self.assertIn("<loc>/archive.html</loc>", sm)
+            self.assertIn("<loc>/tags/mssg.html</loc>", sm)
+
+    def test_sitemap_no_duplicate_index(self):        # content/index.md 存在时，sitemap 里 index.html 只出现一次
         with tempfile.TemporaryDirectory() as tmp:
             root = new_site(os.path.join(tmp, "demo"))
             (root / "content" / "index.md").write_text(

@@ -251,6 +251,7 @@ class Site:
         elif cache.get("tag_files"):
             self._clean_stale(output_dir, cache.pop("tag_files"), set())
 
+        archive_rel = None
         if b.get("archive_page", True):
             archive_rel = self._render_archive(pages, templates, output_dir, rebuilt_any)
             self._clean_stale(output_dir, cache.get("archive_files", []), {archive_rel})
@@ -266,7 +267,10 @@ class Site:
             self._clean_stale(output_dir, cache.pop("feed_files"), set())
 
         if b.get("sitemap", True):
-            extra = sorted((index_made | tag_made) - {"index.html"})
+            extra_paths = set(index_made) | set(tag_made)
+            if archive_rel:
+                extra_paths.add(archive_rel)
+            extra = sorted(extra_paths - {"index.html"})
             sm_rel = self._render_sitemap(pages, output_dir, rebuilt_any, extra)
             self._clean_stale(output_dir, cache.get("sitemap_files", []), {sm_rel})
             cache["sitemap_files"] = [sm_rel]
