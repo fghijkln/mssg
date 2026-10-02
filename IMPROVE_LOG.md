@@ -420,3 +420,12 @@
   行为安全，无需改动。
 - 无代码改动。
 
+## 迭代 42 — 新功能 mssg clean（约 22:50）
+
+- `mssg clean [-c mssg.toml]`：清空构建输出目录。
+  安全保护：output_dir 解析后若等于站点根则拒绝执行（返回 1），
+  防止 `output_dir = "."` 时误删整个站点。
+- 新增测试 2 个：test_clean、test_clean_refuses_site_root。
+  README CLI 参考同步。测试 83/83 全绿。
+- 提交并推送，push 前测试全绿。
+

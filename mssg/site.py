@@ -92,8 +92,10 @@ def _sha1_file(path: Path) -> str:
 
 def _is_draft(value) -> bool:
     """front matter 的 draft 字段是否为真。"""
-    if value is True:
-        return True
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
     if isinstance(value, str):
         return value.strip().lower() in ("true", "yes", "1")
     return False

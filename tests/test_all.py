@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from mssg import cli, markdown, template
 from mssg.frontmatter import split
-from mssg.site import Site, new_site
+from mssg.site import Site, _is_draft, new_site
 
 
 class TestMarkdown(unittest.TestCase):
@@ -752,8 +752,19 @@ class TestCLI(unittest.TestCase):
                 os.chdir(old)
             self.assertTrue((root / "content").exists())
 
-    def test_build_reloads_config(self):
-        # 同一个 Site 对象：改 mssg.toml 后再次 build 要用新配置
+    def test_is_draft_types(self):
+        # 各类型 draft 值的语义一致：真值即草稿
+        self.assertTrue(_is_draft(True))
+        self.assertTrue(_is_draft("true"))
+        self.assertTrue(_is_draft("yes"))
+        self.assertTrue(_is_draft("1"))
+        self.assertTrue(_is_draft(1))
+        self.assertFalse(_is_draft(False))
+        self.assertFalse(_is_draft("false"))
+        self.assertFalse(_is_draft(0))
+        self.assertFalse(_is_draft(None))
+
+    def test_build_reloads_config(self):        # 同一个 Site 对象：改 mssg.toml 后再次 build 要用新配置
         # （serve 的文件监听就靠这个）
         with tempfile.TemporaryDirectory() as tmp:
             root = new_site(os.path.join(tmp, "demo"))
