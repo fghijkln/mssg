@@ -883,3 +883,9 @@
 - 多行 `- ` 列表解析正确，含逗号的引号项不切分。
 - 无代码改动。
 
+## 迭代 112 — 纯函数单元测试（约 18:28）
+
+- 新增 test_helpers_unit：_clean_title/_escape_text/_paginate/
+  _atom_date/_tag_slug 的直接断言。
+- 测试 102/102 全绿（exit=0）。提交并推送。
+
