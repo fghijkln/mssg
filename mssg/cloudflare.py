@@ -30,12 +30,29 @@ MAX_FILES = 20000  # Cloudflare 单次部署文件数上限
 POLL_INTERVAL = 3
 POLL_TIMEOUT = 180
 
-# 备用 DNS（DoH）：直接用 IP 访问，不依赖系统 DNS
-_DOH_URLS = [
+# 备用 DNS（DoH）：先走普通域名（仍需系统 DNS，但可能只坏了个别域名），
+# 再走直连 IP（完全不依赖系统 DNS）
+_DOH_URLS_HOST = [
+    "https://cloudflare-dns.com/dns-query?name={host}&type=A",
+    "https://dns.google/resolve?name={host}&type=A",
+]
+_DOH_URLS_IP = [
     "https://1.1.1.1/dns-query?name={host}&type=A",
     "https://8.8.8.8/resolve?name={host}&type=A",
 ]
 _doh_cache = {}
+
+# 可插拔传输层：fn(method, url, headers:dict, body:bytes|None, timeout)
+# -> (status:int, body:bytes)。None 表示用默认 urllib 通道。
+# App 可将其设为经 WebView（Chromium 网络栈）发请求的实现，
+# 用于系统 DNS/socket 全坏的手机。
+_transport = None
+
+
+def set_transport(fn):
+    """设置备用传输实现（如 App 内 WebView 通道）。"""
+    global _transport
+    _transport = fn
 
 
 class CloudflareError(Exception):
@@ -60,15 +77,16 @@ def _is_dns_error(e):
 
 
 def _doh_resolve(host):
-    """经 DoH 解析 host → IP（不走系统 DNS）。结果按进程缓存。"""
+    """经 DoH 解析 host → IP。先试普通域名，再试直连 IP。按进程缓存。"""
     if host in _doh_cache:
         return _doh_cache[host]
-    last_err = None
-    for url in _DOH_URLS:
+    errs = []
+    for url in _DOH_URLS_HOST + _DOH_URLS_IP:
         try:
             ctx = ssl.create_default_context()
-            ctx.check_hostname = False  # 引导阶段只验链不断 hostname；
-            # 后续 API 连接仍会对 api.cloudflare.com 做完整证书校验
+            if url.startswith("https://1.1.1.1") or url.startswith("https://8.8.8.8"):
+                ctx.check_hostname = False  # IP 直连引导阶段只验链；
+                # 后续 API 连接仍会对 api.cloudflare.com 做完整证书校验
             req = urllib.request.Request(
                 url.format(host=host), headers={"Accept": "application/dns-json"}
             )
@@ -78,10 +96,10 @@ def _doh_resolve(host):
                 if ans.get("type") == 1 and ans.get("data"):
                     _doh_cache[host] = ans["data"]
                     return ans["data"]
-            last_err = "DoH 无有效 A 记录"
+            errs.append("%s: 无有效 A 记录" % url)
         except Exception as e:
-            last_err = e
-    raise CloudflareError("DNS 解析失败（备用 DNS 也不可用）：%s" % last_err)
+            errs.append("%s: %s" % (url, e))
+    raise CloudflareError("DNS 解析失败（备用 DNS 也不可用）：%s" % "; ".join(errs))
 
 
 def _sni_conn_class(ip_map):
@@ -127,6 +145,9 @@ def _raw_req(token, method, path, data, content_type, timeout, opener=None):
 
 
 def _req(token, method, path, data=None, content_type=None, timeout=30):
+    headers = {"Authorization": "Bearer " + token}
+    if content_type:
+        headers["Content-Type"] = content_type
     try:
         return _raw_req(token, method, path, data, content_type, timeout)
     except urllib.error.HTTPError as e:
@@ -153,6 +174,31 @@ def _req(token, method, path, data=None, content_type=None, timeout=30):
                 raise
             except Exception:
                 pass
+        # 最后一招：经备用传输通道（如 App 内 WebView 的 Chromium 网络栈）
+        if _transport is not None:
+            try:
+                status, raw = _transport(
+                    method, API_BASE + path, dict(headers), data, timeout
+                )
+                try:
+                    payload = json.loads(raw.decode("utf-8"))
+                except Exception:
+                    payload = {}
+                if status >= 400:
+                    msgs = "; ".join(
+                        err.get("message", str(err))
+                        for err in payload.get("errors", [])
+                    ) or ("HTTP %d" % status)
+                    raise CloudflareError("Cloudflare API 错误：%s" % msgs)
+                if not payload.get("success", True):
+                    raise CloudflareError(
+                        "Cloudflare API 错误：%s" % payload
+                    )
+                return payload
+            except CloudflareError:
+                raise
+            except Exception as e2:
+                raise CloudflareError("备用通道也失败：%s" % e2)
         raise CloudflareError("网络错误：%s" % e.reason)
 
 

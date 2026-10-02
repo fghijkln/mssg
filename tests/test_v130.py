@@ -279,3 +279,48 @@ class TestSNIConnection(unittest.TestCase):
 
         self.assertEqual(seen.get("sni"), "example.com")
         self.assertEqual(body, b"ok")
+
+
+class TestTransportHook(unittest.TestCase):
+    def tearDown(self):
+        cf.set_transport(None)
+
+    def test_transport_last_resort(self):
+        calls = {}
+
+        def fake_transport(method, url, headers, body, timeout):
+            calls["method"] = method
+            calls["auth"] = headers.get("Authorization", "")
+            return 200, b'{"success": true, "result": [{"id": "a"}]}'
+
+        cf.set_transport(fake_transport)
+        err = cf.urllib.error.URLError(ConnectionRefusedError("refused"))
+        with mock.patch.object(
+            cf.urllib.request, "urlopen", side_effect=err
+        ):
+            out = cf._req("tok123", "GET", "/accounts")
+        self.assertTrue(out["success"])
+        self.assertEqual(calls["method"], "GET")
+        self.assertEqual(calls["auth"], "Bearer tok123")
+
+    def test_transport_api_error(self):
+        def fake_transport(method, url, headers, body, timeout):
+            return 401, b'{"success": false, "errors": [{"message": "bad token"}]}'
+
+        cf.set_transport(fake_transport)
+        err = cf.urllib.error.URLError(ConnectionRefusedError("x"))
+        with mock.patch.object(
+            cf.urllib.request, "urlopen", side_effect=err
+        ):
+            with self.assertRaises(cf.CloudflareError) as cm:
+                cf._req("tok", "GET", "/accounts")
+        self.assertIn("bad token", str(cm.exception))
+
+    def test_no_transport_raises_network_error(self):
+        err = cf.urllib.error.URLError(ConnectionRefusedError("refused"))
+        with mock.patch.object(
+            cf.urllib.request, "urlopen", side_effect=err
+        ):
+            with self.assertRaises(cf.CloudflareError) as cm:
+                cf._req("tok", "GET", "/accounts")
+        self.assertIn("网络错误", str(cm.exception))

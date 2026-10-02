@@ -1,5 +1,19 @@
 # 更新日志
 
+## 0.13.2（2026-10-02）
+
+修部分手机直连 IP 也被拦（`[Errno 1] Operation not permitted`）：
+部署请求最后的兜底改走 App 内 WebView（Chromium 网络栈，和浏览器同源）。
+
+- `cloudflare.set_transport()`：可插拔传输层；App 启动时把 WebView
+  通道注册进去，socket 全坏时自动切换，对用户透明
+- Java 新增 `cfFetchSync`：Python→Java→WebView `fetch()`→回调，
+  大请求体分 64KB 切片经 JS 桥接组装，无 Binder 大小限制
+- DoH 分两层：先试普通域名（cloudflare-dns.com/dns.google），
+  再试直连 IP（1.1.1.1/8.8.8.8）
+- App 补上缺失的 INTERNET 权限 + 允许本地页面跨域访问 API
+
+## 
 ## 0.13.1（2026-10-02）
 
 修复：部分手机上系统 DNS 解析不了 `api.cloudflare.com`
