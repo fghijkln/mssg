@@ -518,3 +518,9 @@
   2. push 前必须检查 unittest 进程退出码本身，禁止用 `| grep` 做判断
      （正确姿势：`python3 -m unittest discover -s tests > /tmp/o 2>&1; echo exit=$?`）。
 
+## 迭代 53 — 事故后全面复验（约 14:50）
+
+- 全量测试 exit=0（88/88）；语法制导 fuzz 2500 用例 0 问题 exit=0。
+  master 当前状态扎实。
+- 无代码改动。
+
