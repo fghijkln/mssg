@@ -55,6 +55,10 @@ class TestMarkdown(unittest.TestCase):
 
     def test_hr(self):
         self.assertIn("<hr>", markdown.parse("---"))
+        # 分隔符之间允许空格（CommonMark 行为）
+        self.assertIn("<hr>", markdown.parse("- - -"))
+        self.assertIn("<hr>", markdown.parse("* * *"))
+        self.assertIn("<hr>", markdown.parse("_ _ _"))
 
     def test_html_escaped(self):
         self.assertIn("&lt;script&gt;", markdown.parse("<script>"))

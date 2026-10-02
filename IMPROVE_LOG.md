@@ -274,3 +274,13 @@
 - 测试 73/73 全绿；fuzz 种子 112233，2000 用例 0 问题。
 - 提交 e576376 并推送，push 前测试全绿。
 
+## 迭代 26 — 第四轮 template 审查：方法泄露（约 19:05）
+
+- 第四轮审查 `_resolve` 发现**真 bug**：`{{ x.strip }}` 会输出
+  `<built-in method strip of str object at 0x…>` —— 把方法 repr
+  （含内存地址）泄露进页面。
+- 修：callable 属性按缺失处理，返回空字符串。
+- 新增测试 test_method_not_exposed。测试 74/74 全绿；
+  fuzz 种子 55555，2000 用例 0 问题。
+- 提交并推送，push 前测试全绿。
+

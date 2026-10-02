@@ -25,7 +25,7 @@ _LINK = re.compile(r'\[([^\]]+)\]\(\s*([^\s)]+)(?:\s+"[^"]*")?\s*\)')
 _BOLD = re.compile(r"\*\*([^*]+?)\*\*")
 _ITALIC = re.compile(r"\*([^*]+?)\*")
 _HEADING = re.compile(r"^(#{1,6})\s+(.*?)\s*#*\s*$")
-_HR = re.compile(r"^(?:-{3,}|\*{3,}|_{3,})\s*$")
+_HR = re.compile(r"^(?:-\s*){3,}$|^(?:\*\s*){3,}$|^(?:_\s*){3,}$")
 _LIST_ITEM = re.compile(r"^(\s*)(?:([-*+])|(\d+)[.)])\s+(.*)$")
 _BLOCKQUOTE = re.compile(r"^\s*>\s?(.*)$")
 _TABLE_SEP_CELL = re.compile(r"^\s*:?-+:?\s*$")
@@ -152,7 +152,7 @@ def _parse_blocks(lines: list[str], i: int) -> tuple[list[str], int]:
 
 
 def _parse_list(lines: list[str], i: int) -> tuple[str, int]:
-    """解析一个列表（含一层嵌套），返回 (html, 下一行下标）。"""
+    """解析一个列表（支持嵌套），返回 (html, 下一行下标）。"""
     n = len(lines)
     m0 = _LIST_ITEM.match(lines[i])
     assert m0 is not None
