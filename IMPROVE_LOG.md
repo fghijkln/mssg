@@ -171,3 +171,16 @@
 - 标签页 12 个（10 合成 + 2 脚手架），生成正确。
 - 结论：性能无需优化。无代码改动，仅记录。
 
+## 迭代 16 — 结构化 fuzz 抓到真 bug（约 16:55）
+
+- 结构化 fuzz（嵌套列表/引用、万级重复字符、千列表格、模板深层嵌套）：
+  抓到 1 个真 bug —— 1000 层嵌套引用导致 `markdown.parse` 抛裸 RecursionError，
+  直接崩构建（此前模板引擎已修过同类问题，Markdown 漏了）。
+- 修：
+  1. `markdown.parse` 捕获 RecursionError → 明确 ValueError（"Markdown 嵌套过深"）；
+  2. `Site.build` 解析/渲染页面失败时报出文件名（"解析页面失败 bad.md：…"），
+     否则用户面对大站根本不知道哪个文件出问题。
+- 新增测试 2 个：test_deep_nesting_clear_error、test_build_reports_bad_page。
+- 测试 59/59 全绿（2.2s）；随机 fuzz 种子 7777，1500 用例 0 问题。
+- 提交并推送，push 前测试全绿。
+
