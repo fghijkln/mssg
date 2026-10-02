@@ -111,15 +111,61 @@ text = "© 2026 星尘科技"
 endpoint = ""
 # endpoint = "https://formspree.io/f/xxxxxx"
 
-# 多语言：取消注释启用英文版。about.en.md 这类文件会输出到 en/ 目录，
-# [site.en] 覆盖英文版的站点文案（标题/菜单/hero 等）。
-# [i18n]
-# default = "zh"
-# langs = ["zh", "en"]
-#
-# [site.en]
-# title = "Stardust"
-# description = "Stardust builds collaboration tools for small teams."
+# 多语言：about.en.md 这类文件输出到 en/ 目录，
+# [site.en] 深层覆盖英文版站点文案（标题/菜单/hero/特性卡等），
+# 导航栏右上角自动出现语言切换器。
+[i18n]
+default = "zh"
+langs = ["zh", "en"]
+
+[site.en]
+title = "Stardust"
+description = "Stardust builds collaboration tools for small teams, turning ideas into products."
+[[site.en.menu]]
+name = "Home"
+url = "/en/"
+weight = 1
+[[site.en.menu]]
+name = "Products"
+url = "/en/products.html"
+weight = 2
+[[site.en.menu]]
+name = "News"
+url = "/en/#news"
+weight = 3
+[[site.en.menu]]
+name = "About"
+url = "/en/about.html"
+weight = 4
+[[site.en.menu]]
+name = "Contact"
+url = "/en/contact.html"
+weight = 5
+[[site.en.menu]]
+name = "Search"
+url = "/en/search.html"
+weight = 6
+[site.en.hero]
+title = "Small team, big-company speed"
+subtitle = "Stardust packs tasks, docs, and publishing into one toolbox — from idea to launch in a single build."
+cta_text = "Our products"
+cta_url = "/en/products.html"
+cta2_text = "Contact us"
+cta2_url = "/en/about.html#contact"
+[[site.en.features]]
+title = "Stardust Collab"
+text = "Kanban plus docs in one place, real-time collaboration, no more tool sprawl."
+[[site.en.features]]
+title = "Stardust Publish"
+text = "Lightning-fast static site publishing — write Markdown, go global in one click."
+[[site.en.features]]
+title = "Stardust Insights"
+text = "Real-time dashboards, so every review is backed by numbers."
+[site.en.contact]
+email = "hi@example.com"
+phone = "400-000-0000"
+[site.en.footer]
+text = "© 2026 Stardust"
 
 [build]
 # per_page = 5  # 首页/标签页每页篇数；0 或不填则不分页
@@ -234,6 +280,102 @@ template: contact.html
 ---
 
 欢迎通过下表给我们留言，我们会尽快回复。
+""",
+        encoding="utf-8",
+    )
+    # 英文版示范内容（输出到 en/ 目录）
+    (root / "content" / "about.en.md").write_text(
+        """\
+---
+title: About Us
+date: 2026-10-02
+---
+
+Founded in 2026, Stardust builds cloud collaboration tools for small teams. We believe **small teams deserve big-company efficiency**.
+
+## What we do
+
+- **Stardust Collab**: kanban plus docs in one place, no more tool sprawl.
+- **Stardust Publish**: lightning-fast static publishing — write it, ship it.
+- **Stardust Insights**: real-time dashboards, so every decision is data-backed.
+
+## Contact {#contact}
+
+- Email: hi@example.com
+- Phone: 400-000-0000
+
+Drop us a line — we'd love to hear your ideas.
+""",
+        encoding="utf-8",
+    )
+    (root / "content" / "products.en.md").write_text(
+        """\
+---
+title: Products
+date: 2026-10-02
+---
+
+Three products, one workflow. From idea to launch, we've got you covered.
+
+## Stardust Collab
+
+The all-in-one collaboration platform for small teams:
+
+- Kanban boards, ready out of the box
+- Docs and knowledge base in one
+- Real-time collaboration, zero learning curve
+
+## Stardust Publish
+
+```python
+print("Hello, Stardust")
+```
+
+Lightning-fast static site publishing: write Markdown, go global in one click.
+
+## Stardust Insights
+
+> Data never lies — but someone has to speak for it.
+
+Real-time business dashboards for reviews backed by numbers.
+""",
+        encoding="utf-8",
+    )
+    (root / "content" / "hello.en.md").write_text(
+        """\
+---
+title: Hello, World
+date: 2026-10-02
+tags: [mssg, demo]
+---
+
+Welcome to the official Stardust blog. This is our first post — and a small manifesto: **mssg** makes site-building simple again.
+
+## Why static sites
+
+- **Fast**: no database, no backend, served over global CDN in a blink.
+- **Reliable**: pure file deployment, near-zero ops.
+- **Beautiful**: write in Markdown, re-skin with one theme switch.
+
+```python
+print("Hello, World")
+```
+
+> What we learn from paper remains shallow; true knowledge comes from practice.
+
+Stay tuned for more.
+""",
+        encoding="utf-8",
+    )
+    (root / "content" / "contact.en.md").write_text(
+        """\
+---
+title: Contact Us
+date: 2026-10-02
+template: contact.html
+---
+
+Drop us a message below — we'll get back to you shortly.
 """,
         encoding="utf-8",
     )

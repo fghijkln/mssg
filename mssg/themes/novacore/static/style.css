@@ -47,6 +47,8 @@ a:hover{color:#c3d6ff}
 .nav-sub a{display:block !important}
 .lang-switch{margin-left:6px;font-size:13px;color:var(--faint);white-space:nowrap;flex-shrink:0}
 .lang-switch a{color:var(--faint);margin:0 5px}
+.lang-switch strong{color:#fff;margin:0 5px}
+.lang-sep{color:#3a4468;margin:0 2px}
 
 /* —— 主视觉 —— */
 .hero{position:relative;overflow:hidden;text-align:center;padding:132px 24px 104px;

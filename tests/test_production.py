@@ -209,8 +209,8 @@ class TestProductionBuild(unittest.TestCase):
                     encoding="utf-8",
                 )
             result = Site(root).build()
-            # 30 篇 + hello/about/products/contact（draft.md 是草稿，默认排除）
-            self.assertEqual(result["pages"], 34)
+            # 30 篇 + 中英 hello/about/products/contact（draft.md 是草稿，默认排除）
+            self.assertEqual(result["pages"], 38)
             self.assertTrue((root / "public" / "p29.html").exists())
 
 

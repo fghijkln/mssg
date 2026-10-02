@@ -13,7 +13,7 @@ from mssg.site import Site, new_site
 
 
 def _make_i18n_site(tmp):
-    """双语站点：中文默认 + 英文。"""
+    """双语站点：中文默认 + 英文（脚手架已自带 i18n，这里微调英文标题以区分测试）。"""
     root = new_site(os.path.join(tmp, "bi"))
     (root / "content" / "about.en.md").write_text(
         "---\ntitle: About Us\ndate: 2026-10-02\n---\n\n# About Us\n\nEnglish content.\n",
@@ -24,10 +24,13 @@ def _make_i18n_site(tmp):
         encoding="utf-8",
     )
     toml = (root / "mssg.toml").read_text(encoding="utf-8")
-    toml += (
-        '\n[i18n]\ndefault = "zh"\nlangs = ["zh", "en"]\n\n'
-        '[site.en]\ntitle = "Stardust EN"\n'
-        'description = "English description."\n'
+    toml = toml.replace(
+        '[site.en]\ntitle = "Stardust"',
+        '[site.en]\ntitle = "Stardust EN"',
+    )
+    toml = toml.replace(
+        'description = "Stardust builds collaboration tools for small teams, turning ideas into products."',
+        'description = "English description."',
     )
     (root / "mssg.toml").write_text(toml, encoding="utf-8")
     return root
@@ -37,6 +40,10 @@ class TestI18n(unittest.TestCase):
     def test_split_lang(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = new_site(os.path.join(tmp, "s"))
+            # 默认脚手架是双语；显式只配 zh 时恢复单语行为
+            toml = (root / "mssg.toml").read_text(encoding="utf-8")
+            toml = toml.replace('langs = ["zh", "en"]', 'langs = ["zh"]')
+            (root / "mssg.toml").write_text(toml, encoding="utf-8")
             site = Site(root)
             self.assertEqual(site._langs(), ["zh"])
             self.assertEqual(site._split_lang("about.md"), ("zh", "about.md"))
@@ -87,10 +94,32 @@ class TestI18n(unittest.TestCase):
             self.assertIn('hreflang="en"', zh_about)
             self.assertIn("/en/about.html", zh_about)
 
+    def test_bilingual_scaffold_default(self):
+        """脚手架默认双语：en/ 页面、中文/EN 切换器、hreflang 齐全。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = new_site(os.path.join(tmp, "bi"), theme="novacore")
+            result = Site(root).build()
+            self.assertEqual(result["pages"], 8)
+            pub = root / "public"
+            for f in ("en/index.html", "en/about.html", "en/products.html",
+                      "en/hello.html", "en/contact.html"):
+                self.assertTrue((pub / f).exists(), f)
+            en_idx = (pub / "en" / "index.html").read_text(encoding="utf-8")
+            self.assertIn("Small team, big-company speed", en_idx)
+            self.assertIn("中文", en_idx)
+            self.assertIn('<a href="/en/products.html">Products</a>', en_idx)
+            self.assertIn('lang="en"', en_idx)
+            zh_idx = (pub / "index.html").read_text(encoding="utf-8")
+            self.assertIn('hreflang="en"', zh_idx)
+            self.assertIn('<a href="/en/index.html">EN</a>', zh_idx)
+
     def test_monolingual_unchanged(self):
-        """未配置 i18n 时行为与旧版一致：无 en/ 目录。"""
+        """只配一种语言时行为与旧版一致：无 en/ 目录。"""
         with tempfile.TemporaryDirectory() as tmp:
             root = new_site(os.path.join(tmp, "s"))
+            toml = (root / "mssg.toml").read_text(encoding="utf-8")
+            toml = toml.replace('langs = ["zh", "en"]', 'langs = ["zh"]')
+            (root / "mssg.toml").write_text(toml, encoding="utf-8")
             Site(root).build()
             self.assertFalse((root / "public" / "en").exists())
 

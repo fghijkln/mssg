@@ -29,7 +29,7 @@
 {% endif %}{% endfor %}
 {% if langs|length > 1 %}
 <span class="lang-switch">
-{% for l in langs %}{% if l == lang %}<strong>{{ l }}</strong>{% elif l in translations %}<a href="/{{ translations[l] }}">{{ l }}</a>{% elif l == default_lang %}<a href="/">{{ l }}</a>{% else %}<a href="/{{ l }}/">{{ l }}</a>{% endif %}{% endfor %}
+{% for l in langs %}{% set lname = {"zh": "中文", "en": "EN"}.get(l, l) %}{% if l == lang %}<strong>{{ lname }}</strong>{% elif l in translations %}<a href="/{{ translations[l] }}">{{ lname }}</a>{% elif l == default_lang %}<a href="/">{{ lname }}</a>{% else %}<a href="/{{ l }}/">{{ lname }}</a>{% endif %}{% if not loop.last %} / {% endif %}{% endfor %}
 </span>
 {% endif %}
 </nav>
