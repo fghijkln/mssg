@@ -69,6 +69,12 @@ class TestMarkdown(unittest.TestCase):
         self.assertIn("<th>a</th>", html)
         self.assertIn("<td>2</td>", html)
 
+    def test_table_pipe_in_code(self):
+        # 行内代码里的 | 不能切分单元格
+        html = markdown.parse("| `a|b` | c |\n|---|---|\n| 1 | 2 |\n")
+        self.assertIn("<th><code>a|b</code></th>", html)
+        self.assertIn("<th>c</th>", html)
+
     def test_hr(self):
         self.assertIn("<hr>", markdown.parse("---"))
         # 分隔符之间允许空格（CommonMark 行为）

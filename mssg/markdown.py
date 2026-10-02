@@ -195,13 +195,36 @@ def _is_table_sep(line: str) -> bool:
     return bool(cells) and all(_TABLE_SEP_CELL.match(c) for c in cells)
 
 
+def _split_row(line: str) -> list[str]:
+    """按 | 切分表格行，反引号内的 | 不切分。"""
+    s = line.strip()
+    if s.startswith("|"):
+        s = s[1:]
+    if s.endswith("|"):
+        s = s[:-1]
+    cells: list[str] = []
+    buf: list[str] = []
+    in_code = False
+    for ch in s:
+        if ch == "`":
+            in_code = not in_code
+            buf.append(ch)
+        elif ch == "|" and not in_code:
+            cells.append("".join(buf))
+            buf = []
+        else:
+            buf.append(ch)
+    cells.append("".join(buf))
+    return [c.strip() for c in cells]
+
+
 def _parse_table(lines: list[str], i: int) -> tuple[str, int]:
-    header = [c.strip() for c in lines[i].strip().strip("|").split("|")]
+    header = _split_row(lines[i])
     i += 2  # 跳过表头与分隔行
     rows = []
     n = len(lines)
     while i < n and lines[i].strip().startswith("|"):
-        rows.append([c.strip() for c in lines[i].strip().strip("|").split("|")])
+        rows.append(_split_row(lines[i]))
         i += 1
     parts = ["<table>"]
     parts.append(
