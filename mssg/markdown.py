@@ -32,9 +32,18 @@ _TABLE_SEP_CELL = re.compile(r"^\s*:?-+:?\s*$")
 
 
 def _inline(text: str) -> str:
-    """行内语法：先转义 HTML，再处理行内标记。"""
+    """行内语法：先转义 HTML，再处理行内标记。
+
+    行内代码片段先暂存为占位符，避免其中的 *、**、[]() 被误解析。
+    """
     text = html.escape(text, quote=False)
-    text = _INLINE_CODE.sub(lambda m: "<code>%s</code>" % m.group(1), text)
+    codes: list[str] = []
+
+    def _stash(m: "re.Match") -> str:
+        codes.append(m.group(1))
+        return "\x00%d\x00" % (len(codes) - 1)
+
+    text = _INLINE_CODE.sub(_stash, text)
     text = _IMAGE.sub(
         lambda m: '<img src="%s" alt="%s">' % (m.group(2), m.group(1)), text
     )
@@ -43,6 +52,8 @@ def _inline(text: str) -> str:
     )
     text = _BOLD.sub(r"<strong>\1</strong>", text)
     text = _ITALIC.sub(r"<em>\1</em>", text)
+    for i, code in enumerate(codes):
+        text = text.replace("\x00%d\x00" % i, "<code>%s</code>" % code)
     return text
 
 

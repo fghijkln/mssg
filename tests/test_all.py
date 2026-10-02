@@ -73,6 +73,20 @@ class TestMarkdown(unittest.TestCase):
         self.assertEqual(markdown.parse(""), "")
         self.assertEqual(markdown.parse("\n\n"), "")
 
+    def test_code_span_protects_markup(self):
+        # 行内代码里的标记字符不应被解析
+        html = markdown.parse("`**不是粗体**` 和 `*不是斜体*` 和 `[x](y)`")
+        self.assertIn("<code>**不是粗体**</code>", html)
+        self.assertIn("<code>*不是斜体*</code>", html)
+        self.assertIn("<code>[x](y)</code>", html)
+        self.assertNotIn("<strong>", html)
+        self.assertNotIn("<em>", html)
+        self.assertNotIn("<a href", html)
+
+    def test_code_span_escapes_html(self):
+        html = markdown.parse("`<b>`")
+        self.assertIn("<code>&lt;b&gt;</code>", html)
+
 
 class TestTemplate(unittest.TestCase):
     def test_var(self):
