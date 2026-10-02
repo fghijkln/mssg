@@ -165,20 +165,26 @@ def main() -> int:
     p_new.set_defaults(func=_cmd_new)
 
     p_build = sub.add_parser("build", help="构建站点")
-    p_build.add_argument("-c", "--config", default="mssg.toml")
+    p_build.add_argument(
+        "-c", "--config", default="mssg.toml", help="配置文件路径（默认 mssg.toml）"
+    )
     p_build.add_argument("--force", action="store_true", help="强制全量重建")
     p_build.add_argument("--drafts", action="store_true", help="包含草稿（draft: true）")
     p_build.set_defaults(func=_cmd_build)
 
     p_serve = sub.add_parser("serve", help="构建并本地预览")
-    p_serve.add_argument("-c", "--config", default="mssg.toml")
-    p_serve.add_argument("--port", type=int, default=8000)
+    p_serve.add_argument(
+        "-c", "--config", default="mssg.toml", help="配置文件路径（默认 mssg.toml）"
+    )
+    p_serve.add_argument("--port", type=int, default=8000, help="监听端口（默认 8000）")
     p_serve.add_argument("--drafts", action="store_true", help="包含草稿（draft: true）")
     p_serve.add_argument("--no-watch", action="store_true", help="关闭文件监听自动重建")
     p_serve.set_defaults(func=_cmd_serve)
 
     p_clean = sub.add_parser("clean", help="清空构建输出目录")
-    p_clean.add_argument("-c", "--config", default="mssg.toml")
+    p_clean.add_argument(
+        "-c", "--config", default="mssg.toml", help="配置文件路径（默认 mssg.toml）"
+    )
     p_clean.set_defaults(func=_cmd_clean)
 
     args = parser.parse_args()

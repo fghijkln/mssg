@@ -478,3 +478,15 @@
   无 TODO/FIXME；print 全是合法 CLI 输出；导入无 SyntaxWarning。
 - 无代码改动。
 
+## 迭代 49 — example 演示分页（约 15:00）
+
+- example/mssg.toml 启用 per_page = 1（2 篇文章 → index.html + page/2.html），
+  让示例站展示分页导航（"1 / 2"）。
+- 构建验证通过。提交并推送。
+
+## 迭代 50 — 全新克隆验证（约 15:05）
+
+- 从 GitHub 全新 git clone：在干净检出上 87/87 测试通过，
+  `mssg --version` 输出 0.2.0 —— 确认推送状态完整自足，无本地未入库依赖。
+- 无代码改动。
+
