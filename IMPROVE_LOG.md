@@ -241,3 +241,12 @@
 - 新增测试 test_multiline_list_comment_stripped。测试 67/67 全绿。
 - 提交并推送，push 前测试全绿。
 
+## 迭代 23 — 第三轮 site.py 审查（约 18:15）
+
+- 发现 2 处问题：
+  1. sitemap 里 content/index.md 存在时 index.html 出现两次 → 去重；
+  2. `_clean_stale` 的 docstring 被复制粘贴成双份 → 清理。
+- 新增测试 test_sitemap_no_duplicate_index。
+  测试 68/68 全绿；fuzz 种子 97531，2000 用例 0 问题。
+- 提交并推送，push 前测试全绿。
+

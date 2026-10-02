@@ -24,8 +24,12 @@ def _cmd_new(args) -> int:
 
 
 def _cmd_build(args) -> int:
-    site = Site(".", config=args.config)
-    result = site.build(force=args.force, include_drafts=args.drafts)
+    try:
+        site = Site(".", config=args.config)
+        result = site.build(force=args.force, include_drafts=args.drafts)
+    except Exception as e:
+        print("构建失败：%s" % e)
+        return 1
     b = site.cfg["build"]
     print(
         "构建完成：%d 个页面，输出到 %s/%s%s"
@@ -89,8 +93,12 @@ def _watch_and_rebuild(site: Site, args, stop_event: threading.Event) -> None:
 
 
 def _cmd_serve(args) -> int:
-    site = Site(".", config=args.config)
-    site.build(include_drafts=args.drafts)
+    try:
+        site = Site(".", config=args.config)
+        site.build(include_drafts=args.drafts)
+    except Exception as e:
+        print("构建失败：%s" % e)
+        return 1
     output_dir = os.path.join(".", site.cfg["build"]["output_dir"])
     handler = functools.partial(
         http.server.SimpleHTTPRequestHandler, directory=output_dir

@@ -1,5 +1,6 @@
 """mssg 单元测试（只用标准库 unittest）。"""
 
+import argparse
 import os
 import sys
 import tempfile
@@ -8,7 +9,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from mssg import markdown, template
+from mssg import cli, markdown, template
 from mssg.frontmatter import split
 from mssg.site import Site, new_site
 
@@ -553,6 +554,33 @@ class TestBuild(unittest.TestCase):
             with self.assertRaises(ValueError) as cm:
                 Site(root).build()
             self.assertIn("bad.md", str(cm.exception))
+
+
+class TestCLI(unittest.TestCase):
+    def _run_build(self, root) -> int:
+        old = os.getcwd()
+        os.chdir(root)
+        try:
+            args = argparse.Namespace(
+                config="mssg.toml", force=False, drafts=False
+            )
+            return cli._cmd_build(args)
+        finally:
+            os.chdir(old)
+
+    def test_build_error_friendly(self):
+        # 模板写坏时 CLI 打印一行友好错误并返回 1，不抛 traceback
+        with tempfile.TemporaryDirectory() as tmp:
+            root = new_site(os.path.join(tmp, "demo"))
+            (root / "templates" / "page.html").write_text(
+                "{% if x %}oops", encoding="utf-8"
+            )
+            self.assertEqual(self._run_build(root), 1)
+
+    def test_build_ok_returns_zero(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = new_site(os.path.join(tmp, "demo"))
+            self.assertEqual(self._run_build(root), 0)
 
 
 if __name__ == "__main__":
