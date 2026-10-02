@@ -34,6 +34,16 @@ _LIST_ITEM = re.compile(r"^(\s*)(?:([-*+])|(\d+)[.)])\s+(.*)$")
 _BLOCKQUOTE = re.compile(r"^\s*>\s?(.*)$")
 _TABLE_SEP_CELL = re.compile(r"^\s*:?-+:?\s*$")
 
+# 合法 HTML 实体（&amp; &#123; &#x1F;）：转义 & 时要保留，不双重转义
+_ENTITY_TAIL = r"(?:#\d+|#x[0-9a-fA-F]+|[a-zA-Z][a-zA-Z0-9]*);"
+_AMP_NOT_ENTITY = re.compile(r"&(?!" + _ENTITY_TAIL + r")")
+
+
+def _escape_text(text: str) -> str:
+    """转义行内文本的 HTML 特殊字符，但保留已有的合法实体。"""
+    text = _AMP_NOT_ENTITY.sub("&amp;", text)
+    return text.replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
+
 
 def _inline(text: str) -> str:
     """行内语法：先转义 HTML，再处理行内标记。
@@ -41,7 +51,7 @@ def _inline(text: str) -> str:
     行内代码片段先暂存为占位符，避免其中的 *、**、[]() 被误解析。
     引号也要转义，否则图片 alt/src、链接 href 拼接进双引号属性时会发生属性注入。
     """
-    text = html.escape(text)  # 默认 quote=True，转义 &<>"'
+    text = _escape_text(text)
     codes: list[str] = []
 
     def _stash(m: "re.Match") -> str:

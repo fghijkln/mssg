@@ -451,6 +451,12 @@ class TestFrontMatter(unittest.TestCase):
             self.assertIn("<title>Hello bold and code -", html)
             self.assertNotIn("**bold**", html)
 
+    def test_entities_preserved(self):
+        # 已有 HTML 实体不被双重转义；裸 & 仍转义
+        self.assertEqual(markdown.parse("A &amp; B"), "<p>A &amp; B</p>")
+        self.assertEqual(markdown.parse("A & B"), "<p>A &amp; B</p>")
+        self.assertIn("&copy;", markdown.parse("x &copy; y"))
+
     def test_empty_date_falls_back_to_mtime(self):
         # date: 留空时应回退到文件 mtime，而不是显示 []
         with tempfile.TemporaryDirectory() as tmp:

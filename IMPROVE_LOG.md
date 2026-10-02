@@ -754,3 +754,11 @@
   title: None 会回退到标题/文件名。
 - 无代码改动。
 
+## 迭代 87 — 标题含原始 Markdown 标记（约 17:08）
+
+- 发现**真 bug**：`# Hello **bold**` 提取的 title 含原始 `**`，
+  出现在 `<title>`/索引/feed 里很难看。
+- 修：新增 `_clean_title()`——渲染行内再去 HTML 标签，得纯文本。
+- 新增测试 test_title_strips_inline_markdown。
+  测试 100/100 全绿（exit=0）。提交并推送。
+
