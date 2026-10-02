@@ -193,27 +193,38 @@ def dominates(a: tuple, b: tuple) -> bool:
     return all(x >= y for x, y in zip(a, b)) and any(x > y for x, y in zip(a, b))
 
 
-def pareto_accept(state: dict, gen: int, commit: str,
-                  scores: dict, base_commit: str) -> tuple[bool, str]:
-    """判定候选是否可接受进前沿。门禁：相对 base 无新失败、构建不挂。"""
+def pareto_accept(state: dict, commit: str, scores: dict,
+                 base_commit: str, target: str = "?") -> tuple[bool, str, str | None]:
+    """Pareto 判定并记录。门禁：相对 base 无新失败、构建不挂。
+
+    接受条件：不被任一前沿候选支配。接受时把候选 append 进 frontier，
+    并剔除被它支配的旧前沿。返回 (ok, reason, fid)。
+    """
     base = next((f for f in state["frontier"] if f["commit"] == base_commit), None)
     if base is not None:
         old_fail = set(base["scores"].get("tests_failed_names", []))
         new_fail = set(scores.get("tests_failed_names", []))
         introduced = new_fail - old_fail
         if introduced:
-            return False, "引入新失败: %s" % sorted(introduced)[:5]
+            return False, "引入新失败: %s" % sorted(introduced)[:5], None
         if base["scores"].get("build_ok") and not scores.get("build_ok"):
-            return False, "构建从成功变失败"
+            return False, "构建从成功变失败", None
     v = _vector(scores)
     for f in state["frontier"]:
         if dominates(_vector(f["scores"]), v):
-            return False, "被前沿候选 %s 支配" % f["id"]
-    # 接受：剔除被新候选支配的旧前沿
+            return False, "被前沿候选 %s 支配" % f["id"], None
+    # 接受：剔除被新候选支配的旧前沿，再记录
     state["frontier"] = [
         f for f in state["frontier"] if not dominates(v, _vector(f["scores"]))
     ]
-    return True, "进入前沿"
+    fid = "F%03d" % (len(state["frontier"]) + 1)
+    state["frontier"].append({
+        "id": fid, "commit": commit, "target": target,
+        "scores": scores, "ts": time.strftime("%F %T"),
+    })
+    att = state["attempts"].setdefault(base_commit, {})
+    att[target] = att.get(target, 0) + 1
+    return True, "进入前沿", fid
 
 
 # -- 状态机 -----------------------------------------------------------------
@@ -297,17 +308,11 @@ def cmd_eval(state: dict, gen: int) -> int:
 def cmd_accept(state: dict, gen: int, commit: str) -> int:
     gdir = ARCHIVE / f"gen_{gen:03d}"
     scores = json.loads((gdir / "scores.json").read_text(encoding="utf-8"))
-    base = state["current"].get("base_commit", "")
-    ok, reason = pareto_accept(state, gen, commit, scores, base)
     cur = state["current"]
+    ok, reason, fid = pareto_accept(state, commit, scores,
+                                    cur.get("base_commit", ""),
+                                    cur.get("target", "?"))
     if ok:
-        fid = "F%03d" % (len(state["frontier"]) + 1)
-        state["frontier"].append({
-            "id": fid, "commit": commit, "target": cur.get("target"),
-            "scores": scores, "ts": time.strftime("%F %T"),
-        })
-        att = state["attempts"].setdefault(base, {})
-        att[cur.get("target", "?")] = att.get(cur.get("target", "?"), 0) + 1
         print("ACCEPT %s: %s" % (fid, reason))
     else:
         print("REJECT: %s" % reason)
