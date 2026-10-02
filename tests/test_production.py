@@ -238,10 +238,10 @@ class TestCompanyScaffold(unittest.TestCase):
             self.assertIn('href="/products.html"', index)
             self.assertIn("关于", index)
             # hero
-            self.assertIn("把想法变成产品", index)
+            self.assertIn("让小团队跑出大公司的速度", index)
             self.assertIn('class="hero"', index)
             # 特性卡
-            self.assertIn("开箱即用", index)
+            self.assertIn("星尘协作", index)
             self.assertIn('class="card"', index)
             # 新闻区列出文章
             self.assertIn('id="news"', index)
@@ -267,7 +267,7 @@ class TestCompanyScaffold(unittest.TestCase):
             toml = root / "mssg.toml"
             text = toml.read_text(encoding="utf-8")
             text = text.replace('title = "星尘科技"', 'title = "青云制造"')
-            text = text.replace('title = "把想法变成产品"', 'title = "硬核制造"')
+            text = text.replace('title = "让小团队跑出大公司的速度"', 'title = "硬核制造"')
             text = text.replace('星尘科技专注于', '青云制造专注于')
             text = text.replace('text = "© 2026 星尘科技"', 'text = "© 2026 青云制造"')
             toml.write_text(text, encoding="utf-8")

@@ -2,6 +2,7 @@
 {% block content %}
 <section class="hero">
 <div class="wrap">
+<span class="eyebrow" data-reveal="down">{{ site.title }}</span>
 <h1 data-reveal="zoom">{{ site.hero.title }}</h1>
 <p class="lede" data-reveal="up" data-delay="1">{{ site.hero.subtitle }}</p>
 <p class="cta-row" data-reveal="up" data-delay="2">
@@ -10,24 +11,31 @@
 </p>
 </div>
 </section>
-<section class="features">
+<section class="section">
 <div class="wrap">
+<span class="eyebrow2" data-reveal="up">为什么选择我们</span>
+<h2 class="sec-title" data-reveal="up" data-delay="1">为小团队而生的生产力</h2>
+<p class="sec-sub" data-reveal="up" data-delay="2">从想法到上线，一套工具全搞定。</p>
 <div class="cards">
 {% for f in site.features %}
-<div class="card" data-reveal="up" data-delay="{{ (loop.index0 % 3) + 1 }}"><h3>{{ f.title }}</h3><p>{{ f.text }}</p></div>
+<div class="card" data-reveal="up" data-delay="{{ (loop.index0 % 3) + 1 }}">
+<div class="kicker">0{{ loop.index }}</div>
+<h3>{{ f.title }}</h3><p>{{ f.text }}</p>
+</div>
 {% endfor %}
 </div>
 </div>
 </section>
-<section class="news" id="news">
+<section class="section news" id="news">
 <div class="wrap">
-<h2 data-reveal="left">新闻动态</h2>
+<span class="eyebrow2" data-reveal="up">最新动态</span>
+<h2 class="sec-title" data-reveal="up" data-delay="1">新闻</h2>
 <ul class="post-list">
 {% for p in pages[:5] %}
 <li data-reveal="right" data-delay="{{ (loop.index0 % 3) + 1 }}"><span class="date">{{ p.date }}</span> <a href="/{{ p.url }}">{{ p.title }}</a></li>
 {% endfor %}
 </ul>
-<p data-reveal="up"><a href="/archive.html">全部归档 →</a></p>
+<p class="more" data-reveal="up"><a href="/archive.html">全部归档 →</a></p>
 {% if pagination.multiple %}
 <nav class="pager">
 {% if pagination.has_prev %}<a href="{{ pagination.prev_url }}">← 上一页</a>{% endif %}

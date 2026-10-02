@@ -1,19 +1,29 @@
 {% extends "base.html" %}
 {% block title %}{{ page.title }} - {{ site.title }}{% endblock %}
 {% block content %}
-<div class="wrap article">
-<h1>{{ page.title }}</h1>
-{{ page.content }}
+<header class="page-head">
+<div class="wrap">
+<h1 data-reveal="zoom">{{ page.title }}</h1>
+</div>
+</header>
+<div class="contact-wrap">
+<div class="prose" style="padding:0 0 8px" data-reveal="up">{{ page.content }}</div>
 {% if site.form.endpoint %}
-<form class="contact-form" action="{{ site.form.endpoint }}" method="POST">
-<label>姓名<input type="text" name="name" required></label>
-<label>邮箱<input type="email" name="email" required></label>
-<label>留言<textarea name="message" rows="6" required></textarea></label>
-<button class="btn" type="submit">发送</button>
+<form class="contact-form" action="{{ site.form.endpoint }}" method="POST" data-reveal="up" data-delay="1">
+<label>姓名<input type="text" name="name" required placeholder="怎么称呼"></label>
+<label>邮箱<input type="email" name="email" required placeholder="name@example.com"></label>
+<label>留言<textarea name="message" rows="6" required placeholder="想说什么…"></textarea></label>
+<button class="btn" type="submit">发送留言</button>
 </form>
 {% else %}
-<p class="hint">联系表单尚未配置：在 <code>mssg.toml</code> 的 <code>[site.form]</code>
-中填入 endpoint（如 Formspree）后重新构建即可启用。</p>
+<form class="contact-form" data-reveal="up" data-delay="1" onsubmit="return false">
+<label>姓名<input type="text" disabled placeholder="怎么称呼"></label>
+<label>邮箱<input type="email" disabled placeholder="name@example.com"></label>
+<label>留言<textarea rows="6" disabled placeholder="想说什么…"></textarea></label>
+<button class="btn" type="button" disabled>发送留言</button>
+<p class="form-note">在线留言即将上线，也可以直接发邮件到
+{% if site.contact.email %}<a href="mailto:{{ site.contact.email }}">{{ site.contact.email }}</a>{% endif %}</p>
+</form>
 {% endif %}
 </div>
 {% endblock %}

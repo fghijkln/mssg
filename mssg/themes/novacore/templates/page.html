@@ -6,9 +6,14 @@
 <meta property="og:type" content="article">
 {% endblock %}
 {% block content %}
-<div class="wrap article">
-<h1>{{ page.title }}</h1>
-{% if page.date %}<p class="meta">{{ page.date }}</p>{% endif %}
+<header class="page-head">
+<div class="wrap">
+{% if page.categories %}<span class="eyebrow">{{ page.categories|join(" · ") }}</span>{% endif %}
+<h1 data-reveal="zoom">{{ page.title }}</h1>
+{% if page.date %}<p class="meta" data-reveal="up" data-delay="1">{{ page.date }}{% if page.tags %} · {{ page.tags|join(" / ") }}{% endif %}</p>{% endif %}
+</div>
+</header>
+<div class="prose" data-reveal="up" data-delay="1">
 {% if page.toc %}
 <nav class="toc"><ul>
 {% for h in page.toc %}<li class="toc{{ h.level }}"><a href="#{{ h.id }}">{{ h.text }}</a></li>

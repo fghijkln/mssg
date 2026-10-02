@@ -38,8 +38,26 @@
 <main>{% block content %}{% endblock %}</main>
 <footer class="site-footer">
 <div class="wrap">
-<p>{{ site.footer.text }} · 由 mssg 生成</p>
-{% if site.contact.email %}<p>联系：<a href="mailto:{{ site.contact.email }}">{{ site.contact.email }}</a>{% if site.contact.phone %} · {{ site.contact.phone }}{% endif %}</p>{% endif %}
+<div class="foot-grid">
+<div>
+<div class="foot-brand">{{ site.title }}</div>
+<p>{{ site.description }}</p>
+</div>
+<div>
+<h4>导航</h4>
+<ul>
+{% for m in site.menu|menu_sort %}<li><a href="{{ m.url }}">{{ m.name }}</a></li>{% endfor %}
+</ul>
+</div>
+<div>
+<h4>联系</h4>
+<ul>
+{% if site.contact.email %}<li><a href="mailto:{{ site.contact.email }}">{{ site.contact.email }}</a></li>{% endif %}
+{% if site.contact.phone %}<li>{{ site.contact.phone }}</li>{% endif %}
+</ul>
+</div>
+</div>
+<div class="foot-bottom">{{ site.footer.text }} · 由 mssg 生成</div>
 </div>
 </footer>
 <script src="/{{ asset("reveal.js") }}" defer></script>

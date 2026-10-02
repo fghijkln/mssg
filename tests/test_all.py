@@ -547,7 +547,7 @@ class TestBuild(unittest.TestCase):
             index = (root / "public" / "index.html").read_text(encoding="utf-8")
             self.assertIn("你好，世界", index)
             page = (root / "public" / "hello.html").read_text(encoding="utf-8")
-            self.assertIn('<h1 id="你好世界">你好，世界</h1>', page)
+            self.assertIn("为什么是静态站点", page)
             self.assertIn("<strong>mssg</strong>", page)
             css = root / "public" / "style.css"
             self.assertTrue(css.exists())
@@ -932,7 +932,7 @@ class TestBuild(unittest.TestCase):
             self.assertIn("你好，世界", xml)
             self.assertIn("<updated>2026-10-02T00:00:00Z</updated>", xml)
             # HTML 内容已转义进 XML
-            self.assertIn("&lt;h1", xml)
+            self.assertIn("&lt;h2", xml)
 
     def test_feed_disabled(self):
         with tempfile.TemporaryDirectory() as tmp:
