@@ -17,7 +17,8 @@ from mssg.site import Site, _is_draft, new_site
 class TestMarkdown(unittest.TestCase):
     def test_heading(self):
         self.assertIn("<h1>标题</h1>", markdown.parse("# 标题"))
-        self.assertIn("<h3>小标题</h3>", markdown.parse("### 小标题"))
+        # h2/h3 带锚点 id，供 TOC 跳转；h1 保持原样
+        self.assertIn('<h3 id="小标题">小标题</h3>', markdown.parse("### 小标题"))
 
     def test_paragraph_and_inline(self):
         html = markdown.parse("这是 **粗体** 和 *斜体* 还有 `代码`。")

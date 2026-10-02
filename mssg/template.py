@@ -8,11 +8,17 @@
 if 条件支持：变量真值、not x、a == b、a != b（b 可为引号字符串、数字或变量）。
 for 循环体内可用 loop.index（从 1 计）与 loop.index0（从 0 计）。
 {# ... #} 为注释，原样丢弃。
+过滤器：{{ name|upper }}，支持链式 {{ x|default("n/a")|upper }}，
+可用：upper/lower/title/capitalize/trim/escape/striptags/urlencode/
+length/join/first/last/default(x)/replace(a,b)/truncate(n)/date(fmt)。
 """
 
 from __future__ import annotations
 
+import html
 import re
+from datetime import datetime
+from urllib.parse import quote as _urlquote
 
 _TOKEN = re.compile(r"({{.*?}}|{%.*?%}|{#.*?#})", re.S)
 _FOR = re.compile(r"for\s+(\w+)\s+in\s+([\w.]+)$")
@@ -157,12 +163,104 @@ class _Text:
 
 
 class _Var:
-    def __init__(self, name: str):
-        self.name = name
+    def __init__(self, expr: str):
+        parts = _split_top(expr, "|")
+        self.name = parts[0].strip()
+        self.filters = [_parse_filter(p) for p in parts[1:]]
 
     def render(self, ctx: dict) -> str:
         val = _resolve(self.name, ctx)
+        if val is None:
+            val = ""
+        for fname, raw_args in self.filters:
+            fn = FILTERS.get(fname)
+            if fn is None:
+                raise ValueError("未知过滤器：%s" % fname)
+            args = [_literal(a, ctx) for a in raw_args]
+            val = fn(val, *args)
         return "" if val is None else str(val)
+
+
+def _split_top(expr: str, sep: str) -> list:
+    """按分隔符切分，忽略引号与括号内的分隔符。"""
+    parts, buf = [], []
+    depth = 0
+    quote = None
+    for ch in expr:
+        if quote:
+            buf.append(ch)
+            if ch == quote:
+                quote = None
+        elif ch in "\"'":
+            quote = ch
+            buf.append(ch)
+        elif ch == "(":
+            depth += 1
+            buf.append(ch)
+        elif ch == ")":
+            depth -= 1
+            buf.append(ch)
+        elif ch == sep and depth == 0:
+            parts.append("".join(buf))
+            buf = []
+        else:
+            buf.append(ch)
+    parts.append("".join(buf))
+    return parts
+
+
+def _parse_filter(part: str) -> tuple:
+    part = part.strip()
+    m = re.match(r"^(\w+)(?:\((.*)\))?$", part, re.S)
+    if not m:
+        raise ValueError("过滤器语法错误：%s" % part)
+    args = []
+    if m.group(2) is not None and m.group(2).strip():
+        args = [a.strip() for a in _split_top(m.group(2), ",")]
+    return m.group(1), args
+
+
+def _f_date(value, fmt="%Y-%m-%d") -> str:
+    s = str(value).strip()
+    for p in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d",
+              "%Y/%m/%d", "%Y-%m-%dT%H:%M:%S"):
+        try:
+            return datetime.strptime(s, p).strftime(str(fmt))
+        except ValueError:
+            continue
+    return s
+
+
+FILTERS = {
+    "upper": lambda v: str(v).upper(),
+    "lower": lambda v: str(v).lower(),
+    "title": lambda v: str(v).title(),
+    "capitalize": lambda v: str(v).capitalize(),
+    "trim": lambda v: str(v).strip(),
+    "escape": lambda v: html.escape(str(v)),
+    "striptags": lambda v: re.sub(r"<[^>]+>", "", str(v)),
+    "urlencode": lambda v: _urlquote(str(v), safe=""),
+    "length": lambda v: len(v) if hasattr(v, "__len__") else 0,
+    "join": lambda v, sep=", ": sep.join(str(x) for x in v)
+    if isinstance(v, (list, tuple)) else str(v),
+    "first": lambda v: v[0] if isinstance(v, (list, tuple)) and v else "",
+    "last": lambda v: v[-1] if isinstance(v, (list, tuple)) and v else "",
+    "default": lambda v, d="": v if _is_truthy(v) else d,
+    "replace": lambda v, old, new: str(v).replace(str(old), str(new)),
+    "date": _f_date,
+}
+
+
+def _f_truncate(value, n=100) -> str:
+    s = str(value)
+    try:
+        n = int(n)
+    except (TypeError, ValueError):
+        n = 100
+    return s if len(s) <= n else s[:n].rstrip() + "…"
+
+
+FILTERS["truncate"] = _f_truncate
 
 
 class _For:

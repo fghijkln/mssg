@@ -34,6 +34,30 @@ _LIST_ITEM = re.compile(r"^(\s*)(?:([-*+])|(\d+)[.)])\s+(.*)$")
 _BLOCKQUOTE = re.compile(r"^\s*>\s?(.*)$")
 _TABLE_SEP_CELL = re.compile(r"^\s*:?-+:?\s*$")
 
+
+def slugify(text: str) -> str:
+    """标题转锚点 id：小写、CJK 保留、空白下划线转连字符、去杂字符。"""
+    text = re.sub(r"<[^>]+>", "", text)
+    text = text.lower()
+    text = re.sub(r"[\s_]+", "-", text)
+    text = re.sub(r"[^\w\-]", "", text, flags=re.UNICODE)
+    text = re.sub(r"-{2,}", "-", text).strip("-")
+    return text or "section"
+
+
+def extract_toc(src: str) -> list:
+    """从 Markdown 源码提取 h2/h3 目录：[{level, text, id}]。"""
+    toc = []
+    for m in re.finditer(r"^(#{2,3})\s+(.*?)\s*#*\s*$", src, re.M):
+        raw = m.group(2)
+        plain = re.sub(r"[*`_~\[\]()!]", "", raw).strip()
+        # 去掉链接的 URL 部分 [文字](url) -> 文字
+        plain = re.sub(r"\[([^\]]+)\]\([^)]*\)", r"\1", plain)
+        if plain:
+            toc.append({"level": len(m.group(1)),
+                        "text": plain, "id": slugify(plain)})
+    return toc
+
 # 合法 HTML 实体（&amp; &#123; &#x1F;）：转义 & 时要保留，不双重转义
 _ENTITY_TAIL = r"(?:#\d+|#x[0-9a-fA-F]+|[a-zA-Z][a-zA-Z0-9]*);"
 _AMP_NOT_ENTITY = re.compile(r"&(?!" + _ENTITY_TAIL + r")")
@@ -124,7 +148,15 @@ def _parse_blocks(lines: list[str], i: int) -> tuple[list[str], int]:
         if m:
             flush_para()
             level = len(m.group(1))
-            out.append("<h%d>%s</h%d>" % (level, _inline(m.group(2)), level))
+            inner = _inline(m.group(2))
+            if level >= 2:
+                # h2/h3 加锚点 id，供 TOC 跳转
+                plain = re.sub(r"[*`_~\[\]()!]", "", m.group(2)).strip()
+                plain = re.sub(r"\[([^\]]+)\]\([^)]*\)", r"\1", plain)
+                out.append('<h%d id="%s">%s</h%d>'
+                           % (level, slugify(plain), inner, level))
+            else:
+                out.append("<h%d>%s</h%d>" % (level, inner, level))
             i += 1
             continue
         if _HR.match(line):

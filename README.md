@@ -67,9 +67,12 @@ static_dir = "static"       # 静态资源目录（原样拷贝）
 output_dir = "public"       # 输出目录
 drafts = false              # true 则默认构建草稿（等价于 --drafts）
 tag_pages = true            # 是否生成 tags/<tag>.html
+category_pages = true       # 是否生成 categories/<cat>.html
 archive_page = true         # 是否生成 archive.html
 feed = true                 # 是否生成 feed.xml（Atom）
+rss = true                  # 是否生成 feed_rss.xml（RSS 2.0）
 sitemap = true              # 是否生成 sitemap.xml
+robots = true               # 是否生成 robots.txt
 per_page = 0                # 首页/标签页每页篇数；0 为不分页
                             # 分页文件：首页 page/2.html…、标签页 tags/<tag>/2.html…
                             # （content 下不要建 page/、tags/<tag>/ 同名路径，以免冲突）
@@ -79,6 +82,7 @@ per_page = 0                # 首页/标签页每页篇数；0 为不分页
 
 ```bash
 mssg new <目录>              # 生成站点脚手架（非空目录拒绝覆盖）
+mssg new post <slug> [-t 标题]  # 在 content/ 下新建文章（已存在则拒绝覆盖）
 mssg build [--force] [--drafts] [-c mssg.toml]
 mssg serve [--port 8000] [--drafts] [--no-watch] [-c mssg.toml]
 mssg clean [-c mssg.toml]       # 清空构建输出目录（指向站点根时拒绝执行）
@@ -101,10 +105,19 @@ ATX 标题、段落、`**粗体**`、`*斜体*`、`` `行内代码` ``、`[链�
 - `{% extends "base.html" %}` + `{% block name %} ... {% endblock %}` —— 模板继承
   （extends 必须为模板的第一个标签；子模板的 block 覆盖父模板；支持多级继承）
 - `{% include "part.html" %}` —— 引入模板片段（使用当前上下文；被引入的模板不能用 extends）
+- 过滤器：`{{ name|upper }}`，支持链式 `{{ x|default("n/a")|upper }}`；
+  共 15 个：upper/lower/title/capitalize/trim/escape/striptags/urlencode/
+  length/join/first/last/default(x)/replace(a,b)/truncate(n)/date(fmt)
+  （如 `{{ p.date|date("%Y年%m月%d日") }}`）
 
-模板可用变量：`site`（配置）、`page`（当前页面：title/date/content/url + front matter
-全部字段）、`pages`（当前列表的页面，按日期倒序）、`pagination`（分页信息：
+模板可用变量：`site`（配置）、`data`（`data/` 下 .json/.toml 数据文件）、
+`page`（当前页面：title/date/content/url/summary/summary_text/toc + front matter
+全部字段；toc 为 h2/h3 列表，每项有 level/text/id）、
+`pages`（当前列表的页面，按日期倒序）、`pagination`（分页信息：
 page/total_pages/multiple/has_prev/has_next/prev_url/next_url）。
+
+摘要：在正文中写 `<!--more-->` 划线，之前的内容即摘要；不写则取首段
+（跳过开头的标题行）。`page.summary` 为 HTML，`page.summary_text` 为纯文本。
 
 分页：`[build] per_page = 5` 后，首页第 2 页起为 `page/2.html`…，
 标签第 2 页起为 `tags/<tag>/2.html`…；分页 URL 自动计入 sitemap；
@@ -122,10 +135,17 @@ per_page 改动会触发全量重建并清理多余分页文件。
 - 标签页：front matter 写 `tags: [a, b]`，自动生成 `tags/<tag>.html`
   （模板 `tag.html`，变量：`tag`、`pages`）；
   标签名保留原文（含中文），`/` `\` 会转为 `-`，重名加 `-2` 后缀
+- 分类页：front matter 写 `categories: [a, b]`（或 `category:`），自动生成
+  `categories/<cat>.html`（模板 `category.html`，变量：`category`、`pages`）
 - 归档页：自动生成 `archive.html`，按年月分组
   （模板 `archive.html`，变量：`groups`，每组有 `ym` 与 `pages`）
 - Atom 订阅：自动生成 `feed.xml`（最近 20 篇），`[build] feed = false` 可关闭
-- 站点地图：自动生成 `sitemap.xml`，`[build] sitemap = false` 可关闭
+- RSS 订阅：自动生成 `feed_rss.xml`（RSS 2.0，最近 20 篇），`[build] rss = false` 可关闭
+- 站点地图：自动生成 `sitemap.xml`（含 lastmod），`[build] sitemap = false` 可关闭
+- robots.txt：自动生成（含 Sitemap 指向），`[build] robots = false` 可关闭
+- 数据文件：`data/` 下的 `.json`/`.toml` 会在模板里以 `data` 变量可用，
+  改动触发重建
+- 并行构建：页面渲染用线程池并行（缓存写回串行）
 
 ## 测试
 
@@ -145,6 +165,11 @@ python -m unittest discover -s tests
 - [x] Atom 输出（feed.xml）
 - [x] `serve` 的文件监听自动重建
 - [x] sitemap.xml
+- [x] 模板过滤器（15 个，支持链式）
+- [x] 文章摘要（`<!--more-->` / 首段 fallback）
+- [x] 分类页、RSS 2.0、robots.txt、页面 TOC
+- [x] 数据文件（`data/` → 模板变量）
+- [x] 并行构建、`mssg new post` 文章脚手架
 
 后续想法：
 

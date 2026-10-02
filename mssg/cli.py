@@ -6,6 +6,7 @@ import argparse
 import functools
 import http.server
 import os
+import re
 import shutil
 import threading
 import time
@@ -96,6 +97,36 @@ def _watch_and_rebuild(site: Site, args, stop_event: threading.Event) -> None:
         except Exception as e:  # noqa: BLE001
             # 构建失败（如模板语法错误）不退出，继续监听等用户修复
             print("[%s] 构建失败：%s（继续监听）" % (now, e), flush=True)
+
+
+def _cmd_post(args) -> int:
+    """在当前站点新建一篇文章 content/<slug>.md。"""
+    import tomllib
+
+    cfg_path = Path(args.config)
+    content_dir = "content"
+    if cfg_path.is_file():
+        try:
+            with open(cfg_path, "rb") as f:
+                content_dir = (
+                    tomllib.load(f).get("build", {}).get("content_dir", "content")
+                )
+        except Exception as e:  # noqa: BLE001
+            print("错误：配置文件解析失败：%s" % e)
+            return 1
+    slug = re.sub(r"[^\w\-]", "", args.slug.replace(" ", "-")).strip("-") or "post"
+    dest = Path(content_dir) / (slug + ".md")
+    if dest.exists():
+        print("错误：文章已存在：%s" % dest)
+        return 1
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(
+        "---\ntitle: %s\ndate: %s\ntags: []\n---\n\n# %s\n\n正文……\n"
+        % (args.title or slug, time.strftime("%Y-%m-%d"), args.title or slug),
+        encoding="utf-8",
+    )
+    print("已创建：%s" % dest)
+    return 0
 
 
 def _cmd_clean(args) -> int:
@@ -190,6 +221,14 @@ def main() -> int:
         "-c", "--config", default="mssg.toml", help="配置文件路径（默认 mssg.toml）"
     )
     p_clean.set_defaults(func=_cmd_clean)
+
+    p_post = sub.add_parser("post", help="新建文章")
+    p_post.add_argument("slug", help="文章文件名（不含 .md）")
+    p_post.add_argument("-t", "--title", default="", help="文章标题（默认用 slug）")
+    p_post.add_argument(
+        "-c", "--config", default="mssg.toml", help="配置文件路径（默认 mssg.toml）"
+    )
+    p_post.set_defaults(func=_cmd_post)
 
     args = parser.parse_args()
     return args.func(args)

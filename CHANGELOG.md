@@ -1,5 +1,30 @@
 # 更新日志
 
+## 0.3.0（2026-10-02）
+
+生产级特性补完。零依赖铁律不变：只用 Python 标准库。
+
+### 新功能
+
+- 摘要：`<!--more-->` 标记或首段自动 fallback；`page.summary`（HTML）、
+  `page.summary_text`（纯文本 200 字）；脚手架 page.html 已用它生成
+  `<meta name="description">`
+- 分类法：`categories/<cat>.html`（与标签页同构，分页、撞车加后缀），
+  `[build] category_pages` 开关
+- RSS 2.0：`feed_rss.xml`（与 Atom 并存），`[build] rss` 开关
+- `robots.txt` 自动生成（含 Sitemap 指向），`[build] robots` 开关
+- 页面目录：`page.toc`（h2/h3，含锚点 id）；h2/h3 输出带 `id` 属性
+- 模板过滤器：`{{ x|upper }}` 链式调用，共 15 个：
+  upper/lower/title/capitalize/trim/escape/striptags/urlencode/length/
+  join/first/last/default(x)/replace(a,b)/truncate(n)/date(fmt)
+- 数据文件：`data/*.json|*.toml` → 模板变量 `data`；改动触发重建
+- 并行构建：页面渲染线程池并行（缓存写回串行，无竞态）
+- `mssg new post <slug> [-t 标题]`：新建文章脚手架
+
+### 修复
+
+- 摘要 fallback 把开头的 `# 标题` 也算进首段 → 跳过标题行取第一个真正段落
+
 ## 未发布
 
 0.2.0 之后的修复（均为先写复现测试再修）：

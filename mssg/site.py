@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import shutil
 import time
 import tomllib
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 from xml.sax.saxutils import escape as _xml_escape
@@ -17,6 +19,7 @@ from . import template as _tpl
 from .frontmatter import split as _split_fm
 
 _FIRST_HEADING = re.compile(r"^#{1,6}\s+(.+?)\s*#*\s*$", re.M)
+_HEADING_RE = re.compile(r"^#{1,6}\s+")
 _TITLE_TAG_RE = re.compile(r"<[^>]*>")
 
 
@@ -51,6 +54,15 @@ _ARCHIVE_FALLBACK = (
     "{% for p in g.pages %}"
     '<li>{{ p.date }} <a href="/{{ p.url }}">{{ p.title }}</a></li>'
     "{% endfor %}</ul>{% endfor %}</body></html>"
+)
+
+_CATEGORY_FALLBACK = (
+    "<!doctype html><html><head><meta charset=utf-8>"
+    "<title>分类：{{ category }}</title></head><body>"
+    "<h1>分类：{{ category }}</h1><ul>"
+    "{% for p in pages %}"
+    '<li>{{ p.date }} <a href="/{{ p.url }}">{{ p.title }}</a></li>'
+    "{% endfor %}</ul>" + _PAGINATION_NAV + "</body></html>"
 )
 
 _INDEX_FALLBACK = (
@@ -141,12 +153,93 @@ def _page_tags(page: dict) -> list:
     return [str(t).strip() for t in tags if str(t).strip()]
 
 
+def _page_categories(page: dict) -> list:
+    """取页面的分类列表（同 tags 的三种写法）。"""
+    cats = page.get("categories", page.get("category", []))
+    if isinstance(cats, str):
+        cats = [c.strip() for c in cats.split(",")]
+    elif not isinstance(cats, (list, tuple)):
+        cats = [cats]
+    return [str(c).strip() for c in cats if str(c).strip()]
+
+
+_MORE_MARKER = "<!--more-->"
+
+
+def _split_summary(body_md: str) -> tuple:
+    """摘要：<!--more--> 之前的内容；没有标记则取首段。
+
+    返回 (summary_html, summary_text)。
+    """
+    if _MORE_MARKER in body_md:
+        head = body_md.split(_MORE_MARKER, 1)[0]
+    else:
+        # 首段 fallback：跳过开头的标题行，取第一个真正的段落
+        lines = []
+        started = False
+        for ln in body_md.split("\n"):
+            s = ln.strip()
+            if not started:
+                if not s or _HEADING_RE.match(s):
+                    continue
+                started = True
+            if not s:
+                break
+            lines.append(ln)
+        head = "\n".join(lines)
+    html_sum = _md.parse(head)
+    text = _TITLE_TAG_RE.sub("", html_sum)
+    text = re.sub(r"\s+", " ", text).strip()
+    return html_sum, text[:200]
+
+
+def _rss_date(value) -> str:
+    """日期转 RFC822（RSS pubDate）；无法解析则原样输出。"""
+    from email.utils import formatdate
+    s = str(value).strip()
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d"):
+        try:
+            dt = datetime.strptime(s, fmt).replace(tzinfo=timezone.utc)
+            return formatdate(dt.timestamp(), usegmt=True)
+        except ValueError:
+            continue
+    return s
+
+
 class Site:
     def __init__(self, root: str | Path, config: str = "mssg.toml"):
         self.root = Path(root)
         self.config_name = config
         self.config_path = self.root / config
         self.cfg = self._load_config(config)
+        self._data: dict = {}
+
+    def _ctx(self, **kw) -> dict:
+        """模板公共上下文：site + data + 调用方变量。"""
+        ctx = {"site": self.cfg["site"], "data": self._data}
+        ctx.update(kw)
+        return ctx
+
+    def _load_data(self, data_dir: Path) -> dict:
+        """加载 data/ 下的 .json/.toml 数据文件，供模板使用。"""
+        data = {}
+        if data_dir.is_dir():
+            for dp in sorted(data_dir.iterdir()):
+                if not dp.is_file():
+                    continue
+                try:
+                    if dp.suffix == ".json":
+                        data[dp.stem] = json.loads(
+                            dp.read_text(encoding="utf-8")
+                        )
+                    elif dp.suffix == ".toml":
+                        with open(dp, "rb") as f:
+                            data[dp.stem] = tomllib.load(f)
+                    else:
+                        continue
+                except Exception as e:
+                    raise ValueError("数据文件解析失败 %s：%s" % (dp.name, e))
+        return data
 
     def _load_config(self, config: str) -> dict:
         cfg = {
@@ -203,9 +296,20 @@ class Site:
         )
         templates_changed = cache.get("templates") != tpl_digest
 
+        # data/ 数据文件变化同样触发全量重建
+        self._data = self._load_data(self.root / b.get("data_dir", "data"))
+        data_digest = hashlib.sha1(
+            json.dumps(self._data, ensure_ascii=False, sort_keys=True,
+                       default=str).encode("utf-8")
+        ).hexdigest()
+        data_changed = cache.get("data") != data_digest
+        cache["data"] = data_digest
+        global_changed = templates_changed or data_changed
+
         pages = []
         rels = set()
-        rebuilt_any = force or templates_changed
+        rebuilt_any = force or global_changed
+        render_jobs = []  # (page, out_path, key, digest)
         if content_dir.is_dir():
             for md_path in sorted(content_dir.rglob("*.md")):
                 rel = md_path.relative_to(content_dir).as_posix()
@@ -229,17 +333,30 @@ class Site:
                 pages.append(page)
                 if (
                     not force
-                    and not templates_changed
+                    and not global_changed
                     and cache.get(key) == digest
                     and out_path.exists()
                 ):
                     continue
+                render_jobs.append((page, out_path, key, digest, rel))
+
+        # 页面渲染并行化（IO 密集，线程池足够；写缓存串行）
+        if render_jobs:
+            def _do_render(job):
+                page, out_path, key, digest, rel = job
                 try:
                     self._render_page(page, templates, out_path)
                 except Exception as e:
-                    raise ValueError("渲染页面失败 %s：%s" % (rel, e))
-                cache[key] = digest
-                rebuilt_any = True
+                    return (key, digest, "渲染页面失败 %s：%s" % (rel, e))
+                return (key, digest, None)
+
+            workers = min(8, (os.cpu_count() or 2))
+            with ThreadPoolExecutor(max_workers=workers) as ex:
+                for key, digest, err in ex.map(_do_render, render_jobs):
+                    if err:
+                        raise ValueError(err)
+                    cache[key] = digest
+                    rebuilt_any = True
 
         # 清理已删除页面的残留：输出文件 + 缓存键；有删除则视为有更新，
         # 必须在渲染索引/标签页/feed 之前做，让它们用最新的 pages 重建
@@ -291,6 +408,16 @@ class Site:
         elif cache.get("archive_files"):
             self._clean_stale(output_dir, cache.pop("archive_files"), set())
 
+        cat_made: set = set()
+        if b.get("category_pages", True):
+            cat_made = self._render_category_pages(
+                pages, templates, output_dir, rebuilt_any
+            )
+            self._clean_stale(output_dir, cache.get("category_files", []), cat_made)
+            cache["category_files"] = sorted(cat_made)
+        elif cache.get("category_files"):
+            self._clean_stale(output_dir, cache.pop("category_files"), set())
+
         if b.get("feed", True):
             feed_rel = self._render_feed(pages, output_dir, rebuilt_any)
             self._clean_stale(output_dir, cache.get("feed_files", []), {feed_rel})
@@ -298,8 +425,22 @@ class Site:
         elif cache.get("feed_files"):
             self._clean_stale(output_dir, cache.pop("feed_files"), set())
 
+        if b.get("rss", True):
+            rss_rel = self._render_rss(pages, output_dir, rebuilt_any)
+            self._clean_stale(output_dir, cache.get("rss_files", []), {rss_rel})
+            cache["rss_files"] = [rss_rel]
+        elif cache.get("rss_files"):
+            self._clean_stale(output_dir, cache.pop("rss_files"), set())
+
+        if b.get("robots", True):
+            robots_rel = self._render_robots(output_dir, rebuilt_any)
+            self._clean_stale(output_dir, cache.get("robots_files", []), {robots_rel})
+            cache["robots_files"] = [robots_rel]
+        elif cache.get("robots_files"):
+            self._clean_stale(output_dir, cache.pop("robots_files"), set())
+
         if b.get("sitemap", True):
-            extra_paths = set(index_made) | set(tag_made)
+            extra_paths = set(index_made) | set(tag_made) | set(cat_made)
             if archive_rel:
                 extra_paths.add(archive_rel)
             extra = sorted(extra_paths - {"index.html"})
@@ -357,6 +498,10 @@ class Site:
             "content": _md.parse(body),
             "url": url,
         }
+        summary_html, summary_text = _split_summary(body)
+        page["summary"] = summary_html
+        page["summary_text"] = summary_text
+        page["toc"] = _md.extract_toc(body)
         for key, value in meta.items():
             if key not in page:
                 page[key] = value
@@ -369,7 +514,7 @@ class Site:
 
     def _render_page(self, page: dict, templates: dict, out_path: Path) -> None:
         tpl_name = str(page.get("template", "page.html"))
-        ctx = {"site": self.cfg["site"], "page": page}
+        ctx = self._ctx(page=page)
         if tpl_name in templates:
             out = _tpl.render_template(tpl_name, ctx, templates.get)
         else:
@@ -398,11 +543,10 @@ class Site:
                 else ("index.html" if i == 2 else "page/%d.html" % (i - 1))
             )
             next_rel = "page/%d.html" % (i + 1) if i < total else None
-            ctx = {
-                "site": self.cfg["site"],
-                "pages": chunk,
-                "pagination": _pagination_ctx(i, total, prev_rel, next_rel),
-            }
+            ctx = self._ctx(
+                pages=chunk,
+                pagination=_pagination_ctx(i, total, prev_rel, next_rel),
+            )
             if "index.html" in templates:
                 out = _tpl.render_template("index.html", ctx, templates.get)
             else:
@@ -414,66 +558,89 @@ class Site:
                 dest.write_text(out, encoding="utf-8")
         return made
 
-    def _render_tag_pages(
-        self, pages: list, templates: dict, output_dir: Path, rebuilt_any: bool
+    def _render_taxonomy(
+        self, pages: list, templates: dict, output_dir: Path, rebuilt_any: bool,
+        *, get_terms, dirname: str, tpl_name: str, fallback: str,
+        var_name: str, label: str,
     ) -> set:
-        """为每个标签生成 tags/<tag>.html（分页时还有 tags/<tag>/N.html）。
+        """通用分类法页面：terms/<slug>.html（分页时还有 terms/<slug>/N.html）。
 
+        get_terms(page) -> 该页的词条列表；var_name 为模板中词条变量名。
         返回生成文件的相对路径集合。
         """
         per_page = self.cfg["build"].get("per_page", 0)
-        by_tag: dict[str, list] = {}
+        by_term: dict[str, list] = {}
         for p in pages:
-            for t in _page_tags(p):
-                by_tag.setdefault(t, []).append(p)
+            for t in get_terms(p):
+                by_term.setdefault(t, []).append(p)
         made = set()
-        # 先算 slug：不同标签撞车时加 -2/-3 后缀区分
+        # 先算 slug：不同词条撞车时加 -2/-3 后缀区分
         slugs: dict[str, str] = {}
         used: set[str] = set()
-        for tag in sorted(by_tag):
-            base = _tag_slug(tag)
+        for term in sorted(by_term):
+            base = _tag_slug(term)
             slug = base
             n = 2
             while slug in used:
                 slug = "%s-%d" % (base, n)
                 n += 1
             used.add(slug)
-            slugs[tag] = slug
-        for tag in sorted(by_tag):
-            tpages = sorted(by_tag[tag], key=lambda p: p["date"], reverse=True)
+            slugs[term] = slug
+        for term in sorted(by_term):
+            tpages = sorted(by_term[term], key=lambda p: p["date"], reverse=True)
             chunks = _paginate(tpages, per_page)
             total = len(chunks)
-            tag_q = slugs[tag]
+            tag_q = slugs[term]
             for i, chunk in enumerate(chunks, start=1):
                 if i == 1:
-                    rel = "tags/%s.html" % tag_q
+                    rel = "%s/%s.html" % (dirname, tag_q)
                     prev_rel = None
                 else:
-                    rel = "tags/%s/%d.html" % (tag_q, i)
+                    rel = "%s/%s/%d.html" % (dirname, tag_q, i)
                     prev_rel = (
-                        "tags/%s.html" % tag_q
+                        "%s/%s.html" % (dirname, tag_q)
                         if i == 2
-                        else "tags/%s/%d.html" % (tag_q, i - 1)
+                        else "%s/%s/%d.html" % (dirname, tag_q, i - 1)
                     )
                 next_rel = (
-                    "tags/%s/%d.html" % (tag_q, i + 1) if i < total else None
+                    "%s/%s/%d.html" % (dirname, tag_q, i + 1) if i < total else None
                 )
-                ctx = {
-                    "site": self.cfg["site"],
-                    "tag": tag,
-                    "pages": chunk,
-                    "pagination": _pagination_ctx(i, total, prev_rel, next_rel),
-                }
-                if "tag.html" in templates:
-                    out = _tpl.render_template("tag.html", ctx, templates.get)
+                ctx = self._ctx(
+                    **{var_name: term},
+                    pages=chunk,
+                    pagination=_pagination_ctx(i, total, prev_rel, next_rel),
+                )
+                if tpl_name in templates:
+                    out = _tpl.render_template(tpl_name, ctx, templates.get)
                 else:
-                    out = _tpl.render(_TAG_FALLBACK, ctx)
+                    out = _tpl.render(fallback, ctx)
                 dest = output_dir / rel
                 made.add(rel)
                 if rebuilt_any or not dest.exists():
                     dest.parent.mkdir(parents=True, exist_ok=True)
                     dest.write_text(out, encoding="utf-8")
         return made
+
+    def _render_tag_pages(
+        self, pages: list, templates: dict, output_dir: Path, rebuilt_any: bool
+    ) -> set:
+        """为每个标签生成 tags/<tag>.html（分页时还有 tags/<tag>/N.html）。"""
+        return self._render_taxonomy(
+            pages, templates, output_dir, rebuilt_any,
+            get_terms=_page_tags, dirname="tags", tpl_name="tag.html",
+            fallback=_TAG_FALLBACK, var_name="tag", label="标签",
+        )
+
+    def _render_category_pages(
+        self, pages: list, templates: dict, output_dir: Path, rebuilt_any: bool
+    ) -> set:
+        """为每个分类生成 categories/<cat>.html（分页时还有 categories/<cat>/N.html）。"""
+        return self._render_taxonomy(
+            pages, templates, output_dir, rebuilt_any,
+            get_terms=_page_categories, dirname="categories",
+            tpl_name="category.html", fallback=_CATEGORY_FALLBACK,
+            var_name="category", label="分类",
+        )
 
     def _render_archive(
         self, pages: list, templates: dict, output_dir: Path, rebuilt_any: bool
@@ -486,7 +653,7 @@ class Site:
             {"ym": ym, "pages": sorted(ps, key=lambda p: p["date"], reverse=True)}
             for ym, ps in sorted(groups.items(), reverse=True)
         ]
-        ctx = {"site": self.cfg["site"], "groups": ordered}
+        ctx = self._ctx(groups=ordered)
         if "archive.html" in templates:
             out = _tpl.render_template("archive.html", ctx, templates.get)
         else:
@@ -547,6 +714,68 @@ class Site:
         if rebuilt_any or not dest.exists():
             dest.write_text(out, encoding="utf-8")
         return "feed.xml"
+
+    def _render_rss(self, pages: list, output_dir: Path, rebuilt_any: bool) -> str:
+        """生成 RSS 2.0 订阅 feed_rss.xml（最近 20 篇），返回相对路径。"""
+        base = self.cfg["site"].get("base_url", "").rstrip("/")
+        items = []
+        for p in pages[:20]:
+            url = (base + "/" + p["url"]) if base else "/" + p["url"]
+            items.append(
+                "  <item>\n"
+                "    <title>%s</title>\n"
+                "    <link>%s</link>\n"
+                "    <guid>%s</guid>\n"
+                "    <pubDate>%s</pubDate>\n"
+                "    <description>%s</description>\n"
+                "  </item>"
+                % (
+                    _xml_escape(str(p["title"])),
+                    _xml_escape(url),
+                    _xml_escape(url),
+                    _rss_date(p["date"]),
+                    _xml_escape(str(p.get("summary_text", ""))),
+                )
+            )
+        if pages:
+            pub = _rss_date(pages[0]["date"])
+        else:
+            pub = _rss_date(datetime.now(timezone.utc).strftime("%Y-%m-%d"))
+        feed_url = (base + "/feed_rss.xml") if base else "/feed_rss.xml"
+        out = (
+            '<?xml version="1.0" encoding="utf-8"?>\n'
+            '<rss version="2.0">\n'
+            " <channel>\n"
+            "  <title>%s</title>\n"
+            '  <link>%s</link>\n'
+            "  <description>%s</description>\n"
+            "  <pubDate>%s</pubDate>\n"
+            "%s\n"
+            " </channel>\n"
+            "</rss>\n"
+            % (
+                _xml_escape(str(self.cfg["site"].get("title", ""))),
+                _xml_escape(feed_url),
+                _xml_escape(str(self.cfg["site"].get("title", ""))),
+                pub,
+                "\n".join(items),
+            )
+        )
+        dest = output_dir / "feed_rss.xml"
+        if rebuilt_any or not dest.exists():
+            dest.write_text(out, encoding="utf-8")
+        return "feed_rss.xml"
+
+    def _render_robots(self, output_dir: Path, rebuilt_any: bool) -> str:
+        """生成 robots.txt，返回相对路径。"""
+        base = self.cfg["site"].get("base_url", "").rstrip("/")
+        lines = ["User-agent: *", "Allow: /"]
+        if base:
+            lines.append("Sitemap: %s/sitemap.xml" % base)
+        dest = output_dir / "robots.txt"
+        if rebuilt_any or not dest.exists():
+            dest.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        return "robots.txt"
 
     def _render_sitemap(
         self, pages: list, output_dir: Path, rebuilt_any: bool, extra=()
@@ -626,6 +855,12 @@ def new_site(name: str | Path) -> Path:
     (root / "content").mkdir(parents=True, exist_ok=True)
     (root / "templates").mkdir(parents=True, exist_ok=True)
     (root / "static").mkdir(parents=True, exist_ok=True)
+    (root / "data").mkdir(parents=True, exist_ok=True)
+
+    (root / "data" / "links.json").write_text(
+        '{\n  "items": [\n    {"name": "示例", "url": "https://example.com"}\n  ]\n}\n',
+        encoding="utf-8",
+    )
 
     (root / "mssg.toml").write_text(
         '[site]\ntitle = "我的小站"\nbase_url = ""\n'
@@ -639,6 +874,8 @@ def new_site(name: str | Path) -> Path:
         '<html lang="zh-CN">\n<head>\n<meta charset="utf-8">\n'
         '<meta name="viewport" content="width=device-width, initial-scale=1">\n'
         "<title>{% block title %}{{ site.title }}{% endblock %}</title>\n"
+        '{% block meta %}<meta name="description" '
+        'content="{{ site.title }}">{% endblock %}\n'
         '<link rel="stylesheet" href="/style.css">\n'
         '<link rel="alternate" type="application/atom+xml" '
         'title="{{ site.title }}" href="/feed.xml">\n</head>\n<body>\n'
@@ -650,8 +887,14 @@ def new_site(name: str | Path) -> Path:
     (root / "templates" / "page.html").write_text(
         '{% extends "base.html" %}\n'
         "{% block title %}{{ page.title }} - {{ site.title }}{% endblock %}\n"
+        '{% block meta %}<meta name="description" '
+        'content="{{ page.summary_text }}">{% endblock %}\n'
         "{% block content %}\n<h2>{{ page.title }}</h2>\n"
         "{% if page.date %}<p class=meta>{{ page.date }}</p>{% endif %}\n"
+        "{% if page.toc %}\n<nav class=toc><ul>\n"
+        "{% for h in page.toc %}"
+        '<li class="toc{{ h.level }}"><a href="#{{ h.id }}">{{ h.text }}</a></li>\n'
+        "{% endfor %}\n</ul></nav>\n{% endif %}\n"
         "{{ page.content }}\n{% endblock %}\n",
         encoding="utf-8",
     )
