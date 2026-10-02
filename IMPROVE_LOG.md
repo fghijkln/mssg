@@ -465,3 +465,16 @@
   测试 86/86 全绿；fuzz 种子 123123，2000 用例 0 问题。
 - 提交并推送，push 前测试全绿。
 
+## 迭代 47 — base_url 实测（约 14:55）
+
+- 实测 `base_url = "https://example.com/blog/"`（末尾斜杠）：
+  feed/sitemap 绝对链接正确、无双斜杠（rstrip("/") 生效）。
+- 补回归测试 test_base_url_absolute_links。测试 87/87 全绿。
+- 提交并推送，push 前测试全绿。
+
+## 迭代 48 — 代码卫生检查（约 14:58）
+
+- 全文件编译通过；未使用导入检查仅 `__future__.annotations`（有意为之）；
+  无 TODO/FIXME；print 全是合法 CLI 输出；导入无 SyntaxWarning。
+- 无代码改动。
+

@@ -3,5 +3,5 @@ title = "我的小站"
 base_url = ""
 
 [build]
-# per_page = 5  # 首页/标签页每页篇数；0 或不填则不分页
+per_page = 1  # 示例：每页 1 篇，演示分页
 # 分页文件：首页 page/2.html…，标签页 tags/<tag>/2.html…
