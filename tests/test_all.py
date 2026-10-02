@@ -93,6 +93,18 @@ class TestMarkdown(unittest.TestCase):
         with self.assertRaises(ValueError):
             markdown.parse(src)
 
+    def test_inline_quotes_escaped(self):
+        # 引号必须转义，否则会从 alt/src/href 属性里"越狱"出来
+        out = markdown.parse('![a"b](http://e.com/)')
+        self.assertIn('<img src="http://e.com/" alt="a&quot;b">', out)
+        out = markdown.parse('[t](http://e.com/"onmouseover="y)')
+        self.assertIn(
+            '<a href="http://e.com/&quot;onmouseover=&quot;y">t</a>', out
+        )
+        out = markdown.parse('`a"b` and **c"d**')
+        self.assertIn("<code>a&quot;b</code>", out)
+        self.assertIn("<strong>c&quot;d</strong>", out)
+
 
 class TestTemplate(unittest.TestCase):
     def test_var(self):

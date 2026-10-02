@@ -6,8 +6,8 @@
     **粗体** *斜体* `行内代码`
     [文字](url)     链接
     ![alt](url)     图片
-    - / * / +       无序列表（支持一层嵌套）
-    1. / 1)         有序列表（支持一层嵌套）
+    - / * / +       无序列表（支持嵌套）
+    1. / 1)         有序列表（支持嵌套）
     >               引用块（可嵌套任意块级语法）
     ```             围栏代码块
     --- / ***       分隔线
@@ -35,8 +35,9 @@ def _inline(text: str) -> str:
     """行内语法：先转义 HTML，再处理行内标记。
 
     行内代码片段先暂存为占位符，避免其中的 *、**、[]() 被误解析。
+    引号也要转义，否则图片 alt/src、链接 href 拼接进双引号属性时会发生属性注入。
     """
-    text = html.escape(text, quote=False)
+    text = html.escape(text)  # 默认 quote=True，转义 &<>"'
     codes: list[str] = []
 
     def _stash(m: "re.Match") -> str:
