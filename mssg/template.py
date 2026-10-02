@@ -52,6 +52,7 @@ def _do_render(src: str, ctx: dict, loader, name: str, seen: tuple) -> str:
     if loader is None:
         raise ValueError("模板使用了 {%% extends %%} 但未提供 loader")
     top_nodes, merged = _resolve_parent(extends, loader, (*seen, name))
+    merged = dict(merged)
     merged.update(blocks)  # 子模板的 block 覆盖父模板
     child_ctx = dict(ctx)
     child_ctx["__blocks__"] = merged
