@@ -1,5 +1,17 @@
 # 更新日志
 
+## 0.13.1（2026-10-02）
+
+修复：部分手机上系统 DNS 解析不了 `api.cloudflare.com`
+（`[Errno 7] No address associated with hostname`），
+Cloudflare 一键部署直接失败。
+
+- 部署请求遇 DNS 错误时，自动走备用通道：经 DoH
+ （`https://1.1.1.1/dns-query`，不依赖系统 DNS）解析出 IP，
+  再直连该 IP（TLS 的 SNI 与证书校验仍用真实域名，安全不降级）
+- 对用户透明：关掉 VPN 也解析失败时自动触发，无需任何操作
+
+## 
 ## 0.13.0（2026-10-02）
 
 Cloudflare Pages 一键部署（可选，220 测试全绿）：

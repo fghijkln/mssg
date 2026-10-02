@@ -147,3 +147,135 @@ class TestCloudflare(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestDoHFallback(unittest.TestCase):
+    def test_is_dns_error(self):
+        import socket
+
+        e = cf.urllib.error.URLError(
+            socket.gaierror(-2, "Name or service not known")
+        )
+        self.assertTrue(cf._is_dns_error(e))
+        e2 = cf.urllib.error.URLError(ConnectionRefusedError("refused"))
+        self.assertFalse(cf._is_dns_error(e2))
+
+    def test_doh_resolve(self):
+        cf._doh_cache.clear()
+        payload = {
+            "Answer": [{"name": "api.cloudflare.com", "type": 1, "data": "1.2.3.4"}]
+        }
+        with mock.patch.object(
+            cf.urllib.request, "urlopen", return_value=_FakeResp(payload)
+        ):
+            ip = cf._doh_resolve("api.cloudflare.com")
+        self.assertEqual(ip, "1.2.3.4")
+        # 缓存命中不再请求网络
+        with mock.patch.object(
+            cf.urllib.request, "urlopen", side_effect=AssertionError("no net")
+        ):
+            self.assertEqual(cf._doh_resolve("api.cloudflare.com"), "1.2.3.4")
+        cf._doh_cache.clear()
+
+    def test_req_falls_back_to_doh(self):
+        import socket
+
+        dns_err = cf.urllib.error.URLError(
+            socket.gaierror("[Errno 7] No address associated with hostname")
+        )
+        calls = {"n": 0}
+
+        def fake_urlopen(req, timeout=30, context=None):
+            calls["n"] += 1
+            raise dns_err
+
+        class FakeOpener:
+            def open(self, req, timeout=30):
+                return _FakeResp({"success": True, "result": [{"id": "a"}]})
+
+        with mock.patch.object(
+            cf.urllib.request, "urlopen", side_effect=fake_urlopen
+        ), mock.patch.object(
+            cf, "_doh_resolve", return_value="1.2.3.4"
+        ), mock.patch.object(
+            cf.urllib.request, "build_opener", return_value=FakeOpener()
+        ):
+            out = cf._req("tok", "GET", "/accounts")
+        self.assertTrue(out["success"])
+        self.assertEqual(calls["n"], 1)  # 直接请求只试一次
+
+    def test_req_doh_failure_raises_original(self):
+        import socket
+
+        dns_err = cf.urllib.error.URLError(socket.gaierror("nope"))
+        with mock.patch.object(
+            cf.urllib.request, "urlopen", side_effect=dns_err
+        ), mock.patch.object(
+            cf, "_doh_resolve", side_effect=cf.CloudflareError("doh down")
+        ):
+            with self.assertRaises(cf.CloudflareError) as cm:
+                cf._req("tok", "GET", "/accounts")
+        self.assertIn("doh down", str(cm.exception))
+
+
+class TestSNIConnection(unittest.TestCase):
+    @unittest.skipUnless(
+        __import__("shutil").which("openssl"), "需要 openssl 生成测试证书"
+    )
+    def test_tcp_to_ip_sni_to_hostname(self):
+        """TCP 连 IP，但 TLS SNI 用真实域名（DoH 备用通道的核心 trick）。"""
+        import shutil
+        import socket
+        import ssl
+        import subprocess
+        import threading
+
+        with tempfile.TemporaryDirectory() as tmp:
+            key = os.path.join(tmp, "k.pem")
+            crt = os.path.join(tmp, "c.pem")
+            subprocess.run(
+                ["openssl", "req", "-x509", "-newkey", "rsa:2048",
+                 "-keyout", key, "-out", crt, "-days", "1", "-nodes",
+                 "-subj", "/CN=example.com"],
+                check=True, capture_output=True,
+            )
+            seen = {}
+
+            def sni_cb(sock, server_name, ctx):
+                seen["sni"] = server_name
+
+            srv_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+            srv_ctx.sni_callback = sni_cb
+            srv_ctx.load_cert_chain(crt, key)
+            lsock = socket.socket()
+            lsock.bind(("127.0.0.1", 0))
+            lsock.listen(1)
+            port = lsock.getsockname()[1]
+
+            def serve():
+                conn, _ = lsock.accept()
+                try:
+                    tls = srv_ctx.wrap_socket(conn, server_side=True)
+                    tls.recv(4096)
+                    tls.sendall(
+                        b"HTTP/1.0 200 OK\r\nContent-Length: 2\r\n\r\nok"
+                    )
+                    tls.close()
+                except Exception:
+                    pass
+
+            th = threading.Thread(target=serve, daemon=True)
+            th.start()
+
+            cls = cf._sni_conn_class({"example.com": "127.0.0.1"})
+            ctx = ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+            conn = cls("example.com", port=port, timeout=10, context=ctx)
+            conn.request("GET", "/")
+            body = conn.getresponse().read()
+            th.join(timeout=5)
+            lsock.close()
+
+        self.assertEqual(seen.get("sni"), "example.com")
+        self.assertEqual(body, b"ok")

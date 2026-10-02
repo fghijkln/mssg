@@ -15,31 +15,120 @@ import json
 import mimetypes
 import os
 import secrets
+import socket
+import ssl
 import time
+import http.client
 import urllib.error
 import urllib.request
 from pathlib import Path
 
 API_BASE = "https://api.cloudflare.com/client/v4"
+API_HOST = "api.cloudflare.com"
 MAX_FILE_SIZE = 25 * 1024 * 1024  # Cloudflare 单文件上限 25 MiB
 MAX_FILES = 20000  # Cloudflare 单次部署文件数上限
 POLL_INTERVAL = 3
 POLL_TIMEOUT = 180
+
+# 备用 DNS（DoH）：直接用 IP 访问，不依赖系统 DNS
+_DOH_URLS = [
+    "https://1.1.1.1/dns-query?name={host}&type=A",
+    "https://8.8.8.8/resolve?name={host}&type=A",
+]
+_doh_cache = {}
 
 
 class CloudflareError(Exception):
     """Cloudflare API 返回 success=false 或网络层失败。"""
 
 
-def _req(token, method, path, data=None, content_type=None, timeout=30):
+def _is_dns_error(e):
+    """URLError 是否由 DNS 解析失败引起。"""
+    r = getattr(e, "reason", None)
+    if isinstance(r, socket.gaierror):
+        return True  # getaddrinfo 错误恒为 DNS 问题
+    msg = str(r).lower()
+    return isinstance(r, OSError) and any(
+        k in msg
+        for k in (
+            "address associated with hostname",
+            "name or service not known",
+            "nodename nor servname",
+            "temporary failure in name resolution",
+        )
+    )
+
+
+def _doh_resolve(host):
+    """经 DoH 解析 host → IP（不走系统 DNS）。结果按进程缓存。"""
+    if host in _doh_cache:
+        return _doh_cache[host]
+    last_err = None
+    for url in _DOH_URLS:
+        try:
+            ctx = ssl.create_default_context()
+            ctx.check_hostname = False  # 引导阶段只验链不断 hostname；
+            # 后续 API 连接仍会对 api.cloudflare.com 做完整证书校验
+            req = urllib.request.Request(
+                url.format(host=host), headers={"Accept": "application/dns-json"}
+            )
+            with urllib.request.urlopen(req, timeout=10, context=ctx) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+            for ans in data.get("Answer", []):
+                if ans.get("type") == 1 and ans.get("data"):
+                    _doh_cache[host] = ans["data"]
+                    return ans["data"]
+            last_err = "DoH 无有效 A 记录"
+        except Exception as e:
+            last_err = e
+    raise CloudflareError("DNS 解析失败（备用 DNS 也不可用）：%s" % last_err)
+
+
+def _sni_conn_class(ip_map):
+    """HTTPSConnection 工厂：TCP 连 IP，TLS 用真实域名做 SNI/证书校验。"""
+
+    class _Conn(http.client.HTTPSConnection):
+        def __init__(self, host, **kw):
+            self._real_host = host
+            super().__init__(ip_map.get(host, host), **kw)
+
+        def connect(self):
+            http.client.HTTPConnection.connect(self)
+            self.sock = self._context.wrap_socket(
+                self.sock, server_hostname=self._real_host
+            )
+
+    return _Conn
+
+
+class _DoHHTTPSHandler(urllib.request.HTTPSHandler):
+    """系统 DNS 失效时的备用通道：经 DoH 拿 IP 直连。"""
+
+    def __init__(self, ip_map):
+        super().__init__()
+        self._ip_map = ip_map
+
+    def https_open(self, req):
+        ctx = ssl.create_default_context()  # 对真实域名的完整证书校验
+        return self.do_open(_sni_conn_class(self._ip_map), req, context=ctx)
+
+
+def _raw_req(token, method, path, data, content_type, timeout, opener=None):
     url = API_BASE + path
     headers = {"Authorization": "Bearer " + token}
     if content_type:
         headers["Content-Type"] = content_type
     req = urllib.request.Request(url, data=data, headers=headers, method=method)
-    try:
+    if opener is None:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             return json.loads(resp.read().decode("utf-8"))
+    with opener.open(req, timeout=timeout) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
+
+def _req(token, method, path, data=None, content_type=None, timeout=30):
+    try:
+        return _raw_req(token, method, path, data, content_type, timeout)
     except urllib.error.HTTPError as e:
         try:
             body = json.loads(e.read().decode("utf-8"))
@@ -50,6 +139,20 @@ def _req(token, method, path, data=None, content_type=None, timeout=30):
         ) or ("HTTP %d" % e.code)
         raise CloudflareError("Cloudflare API 错误：%s" % msgs)
     except urllib.error.URLError as e:
+        if _is_dns_error(e):
+            # 系统 DNS 坏了：DoH 拿 IP 直连再试一次
+            try:
+                ip = _doh_resolve(API_HOST)
+                opener = urllib.request.build_opener(
+                    _DoHHTTPSHandler({API_HOST: ip})
+                )
+                return _raw_req(
+                    token, method, path, data, content_type, timeout, opener
+                )
+            except CloudflareError:
+                raise
+            except Exception:
+                pass
         raise CloudflareError("网络错误：%s" % e.reason)
 
 
