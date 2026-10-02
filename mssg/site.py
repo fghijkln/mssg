@@ -400,10 +400,15 @@ class Site:
             return (base + "/" + rel) if base else "/" + rel
 
         entries = []
+        seen = set()
         if pages:
             entries.append(("index.html", pages[0]["date"]))
+            seen.add("index.html")
         for p in pages:
-            entries.append((p["url"], p["date"]))
+            # content/index.md 本身就是首页，去重避免 index.html 出现两次
+            if p["url"] not in seen:
+                seen.add(p["url"])
+                entries.append((p["url"], p["date"]))
         lines = [
             '<?xml version="1.0" encoding="utf-8"?>',
             '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
@@ -425,7 +430,7 @@ class Site:
 
     @staticmethod
     def _clean_stale(output_dir: Path, old_files: list, made: set) -> None:
-        """删除旧构建产物中已不再生成的残留文件（含路径穿越保护）。"""        """删除旧构建产物中已不再生成的残留文件（含路径穿越保护）。"""
+        """删除旧构建产物中已不再生成的残留文件（含路径穿越保护）。"""
         for stale in set(old_files) - made:
             stale_path = output_dir / stale
             if stale_path.is_file():

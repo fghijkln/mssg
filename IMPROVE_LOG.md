@@ -230,3 +230,14 @@
 - 新增测试 test_inline_quotes_escaped。测试 66/66 全绿（2.1s）。
 - 提交并推送，push 前测试全绿。
 
+## 迭代 22 — 第三轮 frontmatter 审查：注释剥离不一致（约 18:05）
+
+- 第三轮审查发现**真 bug**：行内列表 `tags: [a # 注释]` 会剥离注释，
+  但多行列表
+      tags:
+        - a # 注释
+  却把 "a # 注释" 整个当标签 —— 同一语义两种行为。
+- 修：多行列表项同样走 `_strip_comment`（引号内的 # 保留）。
+- 新增测试 test_multiline_list_comment_stripped。测试 67/67 全绿。
+- 提交并推送，push 前测试全绿。
+

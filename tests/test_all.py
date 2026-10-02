@@ -391,6 +391,17 @@ class TestBuild(unittest.TestCase):
             self.assertIn("我的首页", index)
             self.assertNotIn("hello.html", index)
 
+    def test_sitemap_no_duplicate_index(self):
+        # content/index.md 存在时，sitemap 里 index.html 只出现一次
+        with tempfile.TemporaryDirectory() as tmp:
+            root = new_site(os.path.join(tmp, "demo"))
+            (root / "content" / "index.md").write_text(
+                "---\ntitle: 首页\n---\n\n# 首页\n", encoding="utf-8"
+            )
+            Site(root).build()
+            sm = (root / "public" / "sitemap.xml").read_text(encoding="utf-8")
+            self.assertEqual(sm.count("<loc>/index.html</loc>"), 1)
+
     def test_static_orphan_cleanup(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = new_site(os.path.join(tmp, "demo"))
