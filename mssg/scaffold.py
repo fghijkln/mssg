@@ -43,7 +43,7 @@ description = "星尘科技专注于云端协作工具，帮小团队把想法�
 base_url = ""
 theme = "%s"  # 内置主题：company（公司站）/ minimal（极简风）；templates/ 下放同名文件可覆盖
 
-# 导航菜单（按 weight 排序）
+# 导航菜单（按 weight 排序；children 可嵌套多级，hover/聚焦时下拉展开）
 [[site.menu]]
 name = "首页"
 url = "/"
@@ -52,6 +52,14 @@ weight = 1
 name = "产品"
 url = "/products.html"
 weight = 2
+# [[site.menu.children]]
+# name = "手机"
+# url = "/products/phone.html"
+# weight = 1
+# [[site.menu.children]]
+# name = "电脑"
+# url = "/products/pc.html"
+# weight = 2
 [[site.menu]]
 name = "新闻"
 url = "/#news"

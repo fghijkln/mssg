@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import re
 import threading
+import warnings
 
 import markdown as _markdown
 from markdown.extensions.toc import slugify_unicode as _slugify_unicode
@@ -46,7 +47,8 @@ def _freeze(configs: dict) -> tuple:
     return tuple(items)
 
 
-def _get_md(extensions, extension_configs) -> "_markdown.Markdown":
+def _cached_md(extensions, extension_configs) -> "_markdown.Markdown":
+    """按配置取线程本地缓存的 Markdown 实例（不存在则创建）。"""
     key = (tuple(extensions or []), _freeze(extension_configs or {}))
     cache = getattr(_local, "md_cache", None)
     if cache is None:
@@ -61,6 +63,32 @@ def _get_md(extensions, extension_configs) -> "_markdown.Markdown":
     else:
         md.reset()
     return md
+
+
+_warned_no_pygments = False
+
+
+def _warn_if_no_pygments() -> None:
+    """Pygments 未安装时警告一次（codehilite 会自动降级为普通代码块）。"""
+    global _warned_no_pygments
+    if _warned_no_pygments:
+        return
+    _warned_no_pygments = True
+    try:
+        import pygments  # noqa: F401
+    except ImportError:
+        warnings.warn(
+            "Pygments 未安装，代码高亮已降级为普通代码块；"
+            'pip install "mssg[highlight]" 可恢复'
+        )
+
+
+def _get_md(extensions, extension_configs) -> "_markdown.Markdown":
+    exts = list(extensions or DEFAULT_EXTENSIONS)
+    cfgs = dict(extension_configs or DEFAULT_EXTENSION_CONFIGS)
+    if "codehilite" in exts:
+        _warn_if_no_pygments()
+    return _cached_md(exts, cfgs)
 
 
 def parse(src: str, extensions=None, extension_configs=None) -> str:

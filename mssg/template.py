@@ -63,7 +63,39 @@ def _make_env(templates) -> Environment:
         autoescape=False,  # 页面内容是已生成的 HTML，不转义
     )
     env.filters["date"] = _f_date
+    env.filters["menu_sort"] = _f_menu_sort
+    env.globals["asset"] = _asset_global
     return env
+
+
+def _f_menu_sort(items) -> list:
+    """按 weight 排序菜单（缺 weight 视为 0，不炸模板）。"""
+
+    def _w(m):
+        try:
+            return int((m or {}).get("weight", 0))
+        except (TypeError, ValueError):
+            return 0
+
+    return sorted(items or [], key=_w)
+
+
+_asset_resolver = None
+"""当前构建的资源解析函数：path → 输出 URL。由 Site.build() 设置。"""
+
+
+def set_asset_resolver(fn) -> None:
+    """设置当前构建的 asset 解析函数（fingerprint 映射）。"""
+    global _asset_resolver
+    _asset_resolver = fn
+
+
+def _asset_global(path: str) -> str:
+    """模板全局函数：{{ asset("css/style.css") }} → 指纹 URL 或原路径。"""
+    r = _asset_resolver
+    if r is None:
+        return path
+    return r(path)
 
 
 def render(template_str: str, ctx: dict, templates: dict | None = None) -> str:

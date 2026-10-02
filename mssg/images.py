@@ -1,10 +1,34 @@
-"""静态图片优化（Pillow）：压缩 + 按宽度缩放，失败回退普通拷贝。"""
+"""静态图片优化（Pillow 可选）：压缩 + 按宽度缩放，失败回退普通拷贝。"""
 from __future__ import annotations
 
+import hashlib
 import shutil
+import warnings
 from pathlib import Path
 
 IMG_SUFFIXES = (".jpg", ".jpeg", ".png", ".webp")
+
+_PIL = None  # None=未检测；False=未安装；否则为 PIL.Image 模块
+_warned_no_pil = False
+
+
+def _pil():
+    """取 PIL.Image；未安装时警告一次并返回 None（调用方回退普通拷贝）。"""
+    global _PIL, _warned_no_pil
+    if _PIL is None:
+        try:
+            from PIL import Image
+
+            _PIL = Image
+        except ImportError:
+            _PIL = False
+    if _PIL is False and not _warned_no_pil:
+        _warned_no_pil = True
+        warnings.warn(
+            "Pillow 未安装，图片将直接拷贝不再压缩/缩放；"
+            'pip install "mssg[images]" 可恢复'
+        )
+    return _PIL or None
 
 
 def is_image(path: Path) -> bool:
@@ -17,27 +41,51 @@ def copy_static_file(src: Path, dst: Path, max_w: int, quality: int) -> None:
     max_w <= 0 表示不缩放只压缩。
     """
     if is_image(src):
-        try:
-            from PIL import Image
-
-            im = Image.open(src)
-            if max_w and im.width > max_w:
-                im = im.resize(
-                    (max_w, max(1, round(im.height * max_w / im.width))),
-                    Image.LANCZOS,
-                )
-            dst.parent.mkdir(parents=True, exist_ok=True)
-            suf = src.suffix.lower()
-            if suf in (".jpg", ".jpeg"):
-                if im.mode in ("RGBA", "LA", "P"):
-                    im = im.convert("RGB")
-                im.save(dst, quality=int(quality or 82), optimize=True)
-            elif suf == ".png":
-                im.save(dst, optimize=True)
-            else:
-                im.save(dst)
-            return
-        except Exception:
-            pass
+        Image = _pil()
+        if Image is not None:
+            try:
+                im = Image.open(src)
+                if max_w and im.width > max_w:
+                    im = im.resize(
+                        (max_w, max(1, round(im.height * max_w / im.width))),
+                        Image.LANCZOS,
+                    )
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                suf = src.suffix.lower()
+                if suf in (".jpg", ".jpeg"):
+                    if im.mode in ("RGBA", "LA", "P"):
+                        im = im.convert("RGB")
+                    im.save(dst, quality=int(quality or 82), optimize=True)
+                elif suf == ".png":
+                    im.save(dst, optimize=True)
+                else:
+                    im.save(dst)
+                return
+            except Exception:
+                pass
     dst.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(src, dst)
+
+
+def _sha1_file(path: Path) -> str:
+    h = hashlib.sha1()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(65536), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def place_image(
+    src: Path,
+    dst: Path,
+    max_w: int,
+    quality: int,
+    cache: dict,
+    cache_key: str,
+) -> None:
+    """按需处理并放置一张图片（源指纹 + 配置不变且输出存在则跳过）。"""
+    sig = "%s|%s|%s" % (_sha1_file(src), max_w, quality)
+    if cache.get(cache_key) == sig and dst.exists():
+        return
+    copy_static_file(src, dst, max_w, quality)
+    cache[cache_key] = sig

@@ -447,9 +447,10 @@ class TestFrontMatter(unittest.TestCase):
         self.assertEqual(meta["key"], "a#b")
 
     def test_list_comment_only_item_dropped(self):
-        # 行内列表里写注释是非法的 YAML → 整个 front matter 视为无效
+        # 子集语义（v0.9.0 起不再依赖 PyYAML）：行内列表里的纯注释项被丢弃，
+        # 其余项保留；不再像 PyYAML 那样让整个 front matter 失效
         meta, _ = split("---\ntags: [#x, a]\n---\n")
-        self.assertEqual(meta, {})
+        self.assertEqual(meta, {"tags": ["a"]})
 
     def test_unicode_key(self):
         # 非 ASCII 键名（如中文）也应解析

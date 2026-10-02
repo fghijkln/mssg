@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mssg"
-version = "0.8.0"
+version = "0.9.0"
 description = "轻量静态站点生成器：Markdown + 配置 → 公司官网级网站"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -12,10 +12,11 @@ license = { text = "MIT" }
 dependencies = [
     "Markdown>=3.7",
     "Jinja2>=3.1",
-    "Pygments>=2.18",
-    "PyYAML>=6.0",
-    "Pillow>=10.0",
 ]
+
+[project.optional-dependencies]
+highlight = ["Pygments>=2.18"]  # 代码高亮；不装则降级为普通代码块
+images = ["Pillow>=10.0"]  # 图片压缩/缩放；不装则直接拷贝
 
 [project.scripts]
 mssg = "mssg.cli:main"

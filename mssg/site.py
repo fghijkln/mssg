@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import html as _html
 import json
 import os
 import re
 import shutil
 import time
 import tomllib
+import warnings
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
@@ -19,6 +21,8 @@ from . import markdown as _md
 from . import template as _tpl
 from . import themes as _themes
 from . import images as _images
+from . import shortcodes as _shortcodes
+from . import assets as _assets
 from .frontmatter import split as _split_fm
 from .hooks import Hooks
 from .scaffold import new_site
@@ -26,6 +30,14 @@ from .scaffold import new_site
 _FIRST_HEADING = re.compile(r"^#{1,6}\s+(.+?)\s*#*\s*$", re.M)
 _HEADING_RE = re.compile(r"^#{1,6}\s+")
 _TITLE_TAG_RE = re.compile(r"<[^>]*>")
+
+
+def _to_int(value) -> int:
+    """宽容转 int（失败返回 0）。"""
+    try:
+        return int(str(value).strip())
+    except (TypeError, ValueError):
+        return 0
 
 
 def _clean_title(md_text: str) -> str:
@@ -150,7 +162,7 @@ def _tag_slug(tag: str) -> str:
 
 def _page_tags(page: dict) -> list:
     """取页面的标签列表（支持列表、逗号分隔字符串或单个标量）。"""
-    tags = page.get("tags", [])
+    tags = page.get("tags") or []
     if isinstance(tags, str):
         tags = [t.strip() for t in tags.split(",")]
     elif not isinstance(tags, (list, tuple)):
@@ -160,7 +172,7 @@ def _page_tags(page: dict) -> list:
 
 def _page_categories(page: dict) -> list:
     """取页面的分类列表（同 tags 的三种写法）。"""
-    cats = page.get("categories", page.get("category", []))
+    cats = page.get("categories", page.get("category")) or []
     if isinstance(cats, str):
         cats = [c.strip() for c in cats.split(",")]
     elif not isinstance(cats, (list, tuple)):
@@ -279,12 +291,13 @@ class Site:
             },
             "i18n": {"default": "zh", "langs": []},
             "markdown": {},
+            "assets": {"minify": False, "fingerprint": False},
         }
         path = self.root / config
         if path.exists():
             with open(path, "rb") as f:
                 user = tomllib.load(f)
-            for section in ("site", "build", "i18n", "markdown"):
+            for section in ("site", "build", "i18n", "markdown", "assets"):
                 cfg[section].update(user.get(section, {}))
         return cfg
 
@@ -391,6 +404,58 @@ class Site:
         )
         templates_changed = cache.get("templates") != tpl_digest
 
+        # shortcode 上下文（_parse_content 里展开 {{< >}} 需要）
+        _, _theme_static = self._theme_dirs()
+        self._sc_templates = templates
+        self._sc_output_dir = output_dir
+        self._sc_content_dir = content_dir
+        self._sc_cache = cache
+        self._sc_genfiles = set()  # 本次构建 shortcode/bundle 生成的文件
+        self._sc_max_w = b.get("image_max_width", 1600)
+        self._sc_quality = b.get("image_quality", 82)
+        self._sc_static_dirs = [
+            d for d in (static_dir, _theme_static) if d.is_dir()
+        ]
+        self._sc_missing_warned = set()
+        self._sc_dep_files = []  # 当前页面 shortcode 解析到的依赖文件
+
+        # asset pipeline：fingerprint 映射要在页面渲染前算好（模板里 asset() 用）；
+        # 映射变化（css/js 内容变了）→ 输出 URL 变了 → 必须全量重渲染
+        assets_cfg = self.cfg.get("assets", {})
+        self._assets_minify = bool(assets_cfg.get("minify", False))
+        self._assets_fingerprint = bool(assets_cfg.get("fingerprint", False))
+        self._asset_map = {}
+        if self._assets_fingerprint:
+            for src_dir in self._sc_static_dirs:
+                for sp in sorted(src_dir.rglob("*")):
+                    if not sp.is_file():
+                        continue
+                    rel = sp.relative_to(src_dir).as_posix()
+                    if rel in self._asset_map:
+                        continue  # 站点 static 覆盖主题（_sc_static_dirs 里站点在前）
+                    if sp.suffix.lower() not in (".css", ".js"):
+                        continue
+                    if self._assets_minify:
+                        content = _assets.minified(sp)
+                    else:
+                        try:
+                            content = sp.read_bytes()
+                        except OSError:
+                            content = None
+                    if content is None:
+                        continue
+                    self._asset_map[rel] = _assets.fingerprinted_name(
+                        rel, content
+                    )
+        _tpl.set_asset_resolver(
+            lambda p: self._asset_map.get(p.lstrip("/"), p)
+        )
+        asset_digest = hashlib.sha1(
+            json.dumps(self._asset_map, sort_keys=True).encode("utf-8")
+        ).hexdigest()
+        assets_changed = cache.get("assets") != asset_digest
+        cache["assets"] = asset_digest
+
         # data/ 数据文件变化同样触发全量重建
         self._data = self._load_data(self.root / b.get("data_dir", "data"))
         data_digest = hashlib.sha1(
@@ -399,7 +464,7 @@ class Site:
         ).hexdigest()
         data_changed = cache.get("data") != data_digest
         cache["data"] = data_digest
-        global_changed = templates_changed or data_changed
+        global_changed = templates_changed or data_changed or assets_changed
 
         pages = []
         rels = set()
@@ -438,6 +503,9 @@ class Site:
                     raise ValueError("解析页面失败 %s：%s" % (rel, e))
                 page["lang"] = lang
                 page["key"] = base_rel  # 翻译映射用：去掉语言后缀的相对路径
+                page["_src_rel"] = md_path.parent.relative_to(
+                    content_dir
+                ).as_posix()  # shortcode 图片解析用
                 out_path = output_dir / url
                 key = "page:" + rel
                 if _is_draft(page.get("draft")) and not include_drafts:
@@ -451,15 +519,40 @@ class Site:
                 self.hooks.run("page_read", page)
                 page["_body"] = body  # 轻量页保留正文，供 _ensure_content 按需解析
                 pages.append(page)
+                if md_path.stem == "index":
+                    # page bundle：同目录资源同步（放缓存检查前，
+                    # 缓存命中时也要跟踪 genfiles，避免被当残留删掉）
+                    self._sync_bundle_resources(page, md_path, output_dir, cache)
+                # shortcode 依赖文件变化也触发重建（如图片改了，缩放图要更新）
+                old_deps = cache.get("scdeps:" + key, [])
+                cur_deps = []
+                for rp, _old_sig in old_deps:
+                    p = self.root / rp
+                    cur_deps.append(
+                        [rp, _sha1_file(p) if p.is_file() else "missing"]
+                    )
                 if (
                     not force
                     and not global_changed
                     and not translations_changed
                     and cache.get(key) == digest
+                    and cur_deps == old_deps
                     and out_path.exists()
                 ):
                     continue  # 缓存命中：跳过 Markdown 重量解析
+                self._sc_dep_files = []
                 self._parse_content(page, body)
+                new_deps = []
+                for rp in self._sc_dep_files:
+                    p = self.root / rp
+                    new_deps.append(
+                        [rp, _sha1_file(p) if p.is_file() else "missing"]
+                    )
+                if new_deps != old_deps:
+                    if new_deps:
+                        cache["scdeps:" + key] = new_deps
+                    else:
+                        cache.pop("scdeps:" + key, None)
                 render_jobs.append((page, out_path, key, digest, rel))
 
         # 把翻译映射挂到页面上（_render_page 需要 page["translations"]）
@@ -658,20 +751,25 @@ class Site:
             self._clean_stale(output_dir, cache.pop("sitemap_files"), set())
 
         # 静态资源：主题 static 为底，站点 static/ 覆盖同名文件
-        _, theme_static = self._theme_dirs()
         static_srcs = [
-            (theme_static, True),
             (static_dir, False),
+            (_theme_static, True),
         ]
-        new_static = set()
+        src_map = {}  # 源 rel → src_path（站点覆盖主题）
         for src_dir, _ in static_srcs:
             if src_dir.is_dir():
                 for sp in sorted(src_dir.rglob("*")):
                     if sp.is_file():
-                        new_static.add(sp.relative_to(src_dir).as_posix())
+                        rel = sp.relative_to(src_dir).as_posix()
+                        if rel not in src_map:
+                            src_map[rel] = sp
+        new_static = set(src_map)
         if new_static or cache.get("static_files"):
-            # 清理 static 里已删除的文件在输出目录中的残留
-            for stale in set(cache.get("static_files", [])) - new_static:
+            # 本轮输出 rel（fingerprint 时文件名带哈希）；先清理改名/删除后的残留
+            planned = {rel: self._asset_map.get(rel, rel) for rel in src_map}
+            for stale in set(cache.get("static_files", [])) - set(
+                planned.values()
+            ):
                 stale_path = output_dir / stale
                 if stale_path.is_file():
                     try:
@@ -681,25 +779,63 @@ class Site:
                     stale_path.unlink()
             max_w = b.get("image_max_width", 1600)
             quality = b.get("image_quality", 82)
-            for src_dir, _ in static_srcs:
-                if src_dir.is_dir():
-                    for sp in sorted(src_dir.rglob("*")):
-                        if sp.is_file():
-                            rel = sp.relative_to(src_dir).as_posix()
-                            dst = output_dir / rel
-                            if _images.is_image(sp):
-                                # 图片缓存：源文件指纹 + 压缩配置不变且输出存在则跳过
-                                sig = "%s|%s|%s" % (_sha1_file(sp), max_w, quality)
-                                if cache.get("img:" + rel) == sig and dst.exists():
-                                    continue
-                                _images.copy_static_file(sp, dst, max_w, quality)
-                                cache["img:" + rel] = sig
-                            else:
-                                _images.copy_static_file(sp, dst, max_w, quality)
-            cache["static_files"] = sorted(new_static)
-            # 清理已删除图片的缓存指纹
-            for key in [k for k in cache if k.startswith("img:") and k[4:] not in new_static]:
+            for rel, sp in src_map.items():
+                out_rel = planned[rel]
+                dst = output_dir / out_rel
+                if _images.is_image(sp):
+                    # 图片缓存：源文件指纹 + 压缩配置不变且输出存在则跳过
+                    sig = "%s|%s|%s" % (_sha1_file(sp), max_w, quality)
+                    if cache.get("img:" + rel) == sig and dst.exists():
+                        continue
+                    _images.copy_static_file(sp, dst, max_w, quality)
+                    cache["img:" + rel] = sig
+                elif self._assets_minify and sp.suffix.lower() in (
+                    ".css",
+                    ".js",
+                ):
+                    data = _assets.minified(sp)
+                    if data is None:  # 非 utf-8 等，直接拷贝
+                        _images.copy_static_file(sp, dst, max_w, quality)
+                        continue
+                    sig = "min|%s" % _sha1_file(sp)
+                    if cache.get("asset:" + out_rel) == sig and dst.exists():
+                        continue
+                    dst.parent.mkdir(parents=True, exist_ok=True)
+                    dst.write_bytes(data)
+                    cache["asset:" + out_rel] = sig
+                else:
+                    _images.copy_static_file(sp, dst, max_w, quality)
+            cache["static_files"] = sorted(planned.values())
+            # 清理已删除文件的缓存指纹
+            for key in [
+                k
+                for k in cache
+                if k.startswith("img:") and k[4:] not in new_static
+            ]:
                 del cache[key]
+            for key in [
+                k
+                for k in cache
+                if k.startswith("asset:") and k[6:] not in planned.values()
+            ]:
+                del cache[key]
+
+        # 清理 shortcode / page bundle 生成的残留文件
+        for stale in set(cache.get("genfiles", [])) - self._sc_genfiles:
+            stale_path = output_dir / stale
+            if stale_path.is_file():
+                try:
+                    stale_path.resolve().relative_to(output_dir.resolve())
+                except ValueError:
+                    continue  # 路径穿越保护
+                stale_path.unlink()
+        cache["genfiles"] = sorted(self._sc_genfiles)
+        for key in [
+            k
+            for k in cache
+            if k.startswith("imggen:") and k[7:] not in self._sc_genfiles
+        ]:
+            del cache[key]
 
         cache["templates"] = tpl_digest
         cache["config"] = config_digest
@@ -761,7 +897,15 @@ class Site:
         return page, body
 
     def _parse_content(self, page: dict, body: str) -> dict:
-        """重量解析：Markdown → content/summary/toc（就地修改 page 并返回）。"""
+        """重量解析：shortcode 展开 → Markdown → content/summary/toc。
+
+        就地修改 page 并返回。
+        """
+        if getattr(self, "_sc_templates", None) is not None:
+            body = _shortcodes.expand(
+                body,
+                lambda n, a, k: self._render_shortcode(n, a, k, page),
+            )
         exts, cfgs = self._md_opts
         page["content"] = _md.parse(body, extensions=exts, extension_configs=cfgs)
         summary_html, summary_text = _split_summary(
@@ -777,6 +921,169 @@ class Site:
         for p in pages:
             if "content" not in p:
                 self._parse_content(p, p.pop("_body", ""))
+
+    # -- shortcodes --------------------------------------------------------
+
+    def _render_shortcode(self, name: str, args: list, kwargs: dict, page: dict):
+        """渲染单个 shortcode；未知返回 None（保留原文）。"""
+        builtin = {
+            "figure": self._sc_figure,
+            "youtube": self._sc_youtube,
+            "image": self._sc_image,
+        }.get(name)
+        if builtin is not None:
+            return builtin(args, kwargs, page)
+        tpl_src = self._sc_templates.get("shortcodes/%s.html" % name)
+        if tpl_src is None:
+            if name not in self._sc_missing_warned:
+                self._sc_missing_warned.add(name)
+                warnings.warn("未知 shortcode：%s（保留原文）" % name)
+            return None
+        lang = page.get("lang", self._default_lang())
+        ctx = self._ctx(
+            site=self._site_for_lang(lang),
+            lang=lang,
+            page=page,
+            translations=page.get("translations", {}),
+            args=args,
+            kwargs=kwargs,
+        )
+        try:
+            return _tpl.render(tpl_src, ctx, self._sc_templates)
+        except Exception as e:
+            raise ValueError("shortcode 渲染失败 %s：%s" % (name, e))
+
+    def _sc_figure(self, args: list, kwargs: dict, page: dict):
+        src = kwargs.get("src") or (args[0] if args else "")
+        if not src:
+            return None
+        url = self._sc_place_checked(src, page, _to_int(kwargs.get("width")))
+        if url is None:
+            return None
+        alt = _html.escape(str(kwargs.get("alt", "")), quote=True)
+        title = str(kwargs.get("title", ""))
+        cap = (
+            "<figcaption>%s</figcaption>" % _html.escape(title)
+            if title
+            else ""
+        )
+        cls = (
+            ' class="%s"' % _html.escape(str(kwargs["class"]), quote=True)
+            if kwargs.get("class")
+            else ""
+        )
+        return '<figure%s><img src="%s" alt="%s">%s</figure>' % (cls, url, alt, cap)
+
+    def _sc_image(self, args: list, kwargs: dict, page: dict):
+        src = kwargs.get("src") or (args[0] if args else "")
+        if not src:
+            return None
+        width = _to_int(kwargs.get("width"))
+        url = self._sc_place_checked(src, page, width)
+        if url is None:
+            return None
+        alt = _html.escape(str(kwargs.get("alt", "")), quote=True)
+        w_attr = ' width="%d"' % width if width > 0 else ""
+        return '<img src="%s" alt="%s"%s>' % (url, alt, w_attr)
+
+    def _sc_youtube(self, args: list, kwargs: dict, page: dict):
+        vid = kwargs.get("id") or (args[0] if args else "")
+        if not vid or not re.fullmatch(r"[\w-]{6,64}", str(vid)):
+            return None
+        vid = _html.escape(str(vid), quote=True)
+        return (
+            '<div class="sc-youtube">'
+            '<iframe src="https://www.youtube-nocookie.com/embed/%s" '
+            'title="YouTube 视频" frameborder="0" loading="lazy" '
+            'allow="accelerometer; autoplay; clipboard-write; encrypted-media; '
+            'gyroscope; picture-in-picture" allowfullscreen></iframe></div>' % vid
+        )
+
+    def _sc_place_checked(self, src: str, page: dict, width: int):
+        """解析 shortcode 图片并放到页面输出目录，返回相对 URL；找不到返回 None。"""
+        sp = self._sc_resolve_src(src, page)
+        if sp is None:
+            key = "file:" + src
+            if key not in self._sc_missing_warned:
+                self._sc_missing_warned.add(key)
+                warnings.warn(
+                    "shortcode 图片找不到：%s（页面 %s，保留原文）"
+                    % (src, page.get("url", "?"))
+                )
+            return None
+        return self._sc_place_image(sp, page, width)
+
+    def _sc_resolve_src(self, src: str, page: dict):
+        """按 页面同目录 → content/ → static/ → 主题 static 解析图片路径（含穿越保护）。"""
+        candidates = []
+        src_rel = page.get("_src_rel") or ""
+        if src_rel and src_rel != ".":
+            candidates.append(self._sc_content_dir / src_rel / src)
+        candidates.append(self._sc_content_dir / src)
+        candidates.extend(d / src for d in self._sc_static_dirs)
+        allowed = [self._sc_content_dir] + self._sc_static_dirs
+        allowed_resolved = [a.resolve() for a in allowed]
+        for c in candidates:
+            if not c.is_file():
+                continue
+            rp = c.resolve()
+            if any(
+                rp == ar or ar in rp.parents for ar in allowed_resolved
+            ):
+                try:
+                    rel = rp.relative_to(self.root.resolve()).as_posix()
+                except ValueError:
+                    rel = None
+                if rel and rel not in self._sc_dep_files:
+                    self._sc_dep_files.append(rel)
+                return c
+        return None
+
+    def _sc_place_image(self, src_path: Path, page: dict, width: int) -> str:
+        """把图片放到页面输出目录旁，返回相对 URL（与页面 HTML 同目录）。"""
+        parts = page["url"].rsplit("/", 1)
+        page_dir = parts[0] if len(parts) == 2 else ""
+        stem, suffix = src_path.stem, src_path.suffix.lower()
+        if width > 0:
+            out_name = "%s-%dw%s" % (stem, width, suffix)
+            max_w = width
+        else:
+            out_name = stem + suffix
+            max_w = self._sc_max_w
+        out_rel = (page_dir + "/" + out_name) if page_dir else out_name
+        dst = self._sc_output_dir / out_rel
+        _images.place_image(
+            src_path, dst, max_w, self._sc_quality,
+            self._sc_cache, "imggen:" + out_rel,
+        )
+        self._sc_genfiles.add(out_rel)
+        return out_name
+
+    def _sync_bundle_resources(
+        self, page: dict, md_path: Path, output_dir: Path, cache: dict
+    ) -> None:
+        """page bundle：index.md 同目录的非 md 资源同步到页面输出目录。"""
+        parts = page["url"].rsplit("/", 1)
+        page_dir = parts[0] if len(parts) == 2 else ""
+        for sp in sorted(md_path.parent.iterdir()):
+            if not sp.is_file() or sp.suffix.lower() == ".md":
+                continue
+            out_rel = (
+                (page_dir + "/" + sp.name) if page_dir else sp.name
+            )
+            dst = output_dir / out_rel
+            if _images.is_image(sp):
+                _images.place_image(
+                    sp, dst, self._sc_max_w, self._sc_quality,
+                    cache, "imggen:" + out_rel,
+                )
+            else:
+                sig = _sha1_file(sp)
+                if cache.get("imggen:" + out_rel) != sig or not dst.exists():
+                    dst.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(sp, dst)
+                    cache["imggen:" + out_rel] = sig
+            self._sc_genfiles.add(out_rel)
 
     @staticmethod
     def _first_heading(body: str) -> str:

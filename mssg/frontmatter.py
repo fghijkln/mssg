@@ -1,6 +1,6 @@
-"""front matter 解析（基于 PyYAML 第三方库，完整 YAML 支持）。
+"""front matter 解析（零依赖，基于 mssg.yaml_subset）。
 
-文件开头用 --- 包裹的 YAML 块：
+文件开头用 --- 包裹的 YAML 子集块：
     ---
     title: 你好
     date: 2026-10-02
@@ -8,10 +8,9 @@
     draft: false
     ---
 """
-
 from __future__ import annotations
 
-import yaml
+from .yaml_subset import loads as _yaml_loads
 
 
 def split(text: str) -> tuple[dict, str]:
@@ -27,10 +26,7 @@ def split(text: str) -> tuple[dict, str]:
             break
     if end is None:
         return {}, text
-    try:
-        meta = yaml.safe_load("\n".join(lines[1:end])) or {}
-    except yaml.YAMLError:
-        meta = {}
+    meta = _yaml_loads("\n".join(lines[1:end]))
     if not isinstance(meta, dict):
         meta = {}
     block = "\n".join(lines[1:end])

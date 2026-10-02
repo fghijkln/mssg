@@ -12,9 +12,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-import yaml
-
 from .frontmatter import split as _split_fm
+from .yaml_subset import dumps as _yaml_dumps
 from .site import Site
 
 CSS = """
@@ -198,7 +197,7 @@ class AdminApp:
             meta["draft"] = True
         else:
             meta.pop("draft", None)
-        fm = yaml.safe_dump(meta, allow_unicode=True, sort_keys=False)
+        fm = _yaml_dumps(meta)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("---\n" + fm + "---\n" + body.lstrip("\n"), encoding="utf-8")
         return rel

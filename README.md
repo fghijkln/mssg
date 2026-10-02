@@ -7,8 +7,17 @@
 
 ## 安装
 
-需要 Python 3.11+。`pip install .` 会自动安装依赖
-（Markdown、Jinja2、PyYAML、Pygments）。
+需要 Python 3.11+。`pip install .` 只装两个硬依赖
+（Markdown、Jinja2，约 2.3MB）：
+
+```bash
+pip install "mssg[highlight]"  # + 代码高亮（Pygments）
+pip install "mssg[images]"     # + 图片压缩/缩放（Pillow）
+pip install "mssg[highlight,images]"  # 全功能
+```
+
+不装可选依赖也能建站：代码块降级为无高亮、图片直接拷贝，
+首次构建时各警告一次。
 
 ## 快速开始
 
@@ -60,11 +69,19 @@ title = "星尘科技"  # 站点标题，模板里用 {{ site.title }}
 description = "一句话介绍"  # meta description / og:description
 base_url = ""        # 站点根 URL，如 https://example.com（用于 feed/sitemap 绝对链接）
 
-# 导航菜单（按 weight 排序，模板里用 site.menu|sort(attribute="weight")）
+# 导航菜单（按 weight 排序；children 可嵌套多级，hover/聚焦时下拉展开）
 [[site.menu]]
 name = "首页"
 url = "/"
 weight = 1
+[[site.menu]]
+name = "产品"
+url = "/products.html"
+weight = 2
+# [[site.menu.children]]
+# name = "手机"
+# url = "/products/phone.html"
+# weight = 1
 [[site.menu]]
 name = "关于"
 url = "/about.html"
@@ -111,6 +128,16 @@ per_page = 0                # 首页/标签页每页篇数；0 为不分页
 search = true               # 站内搜索：生成 search.json 索引 + /search.html（无后端纯前端）
 image_max_width = 1600      # static/ 里的图片超过此宽度则缩放（Pillow）；0 为不缩放
 image_quality = 82          # JPEG 压缩质量（1-95）；PNG 自动 optimize
+
+# 资源管线（零依赖）
+[assets]
+minify = false       # true 则压缩 static/ 下的 .css/.js
+                     #（CSS 全压缩；JS 保守压缩：只去注释和空行。
+                     # 注意：JS 里含 // 的正则字面量可能被误伤，
+                     # 这类文件请关闭 minify 或把 // 改写为 \/\/）
+fingerprint = false  # true 则给 .css/.js 文件名加内容哈希
+                     #（style.css → style.<8hex>.css），模板里用
+                     # {{ asset("style.css") }} 引用；内容变化自动清理旧文件
 
 # 联系表单：填入 Formspree / Getform 等第三方服务的 endpoint，
 # 联系页（/contact.html）的表单即可用；留空则显示配置提示
@@ -263,7 +290,25 @@ per_page 改动会触发全量重建并清理多余分页文件。
 - 站内搜索：构建时生成 `search.json` 全文索引，`/search.html`
   纯前端 JS 搜索（按当前语言过滤），无后端依赖；`[build] search = false` 可关闭
 - 图片优化：`static/` 里的 JPG/PNG/WebP 构建时自动压缩，
-  超过 `image_max_width` 则等比缩放（Pillow LANCZOS）；损坏图片回退普通拷贝
+  超过 `image_max_width` 则等比缩放（Pillow LANCZOS）；损坏图片回退普通拷贝。
+  Pillow 未安装时直接拷贝并警告一次（`pip install "mssg[images]"` 恢复）
+- Shortcodes：Markdown 里写 `{{< figure src="a.jpg" title="图注" >}}`、
+  `{{< youtube 视频ID >}}`、`{{< image src="photo.jpg" width="800" >}}`
+  （Hugo `{{< >}}` 语法子集）；`templates/shortcodes/<name>.html`
+  可自定义 shortcode（变量 `args` / `kwargs` / `page` / `site`）；
+  未知的 shortcode 保留原文并警告一次
+- Page bundles：`content/post/x/index.md` 同目录的非 md 资源
+  （图片/附件）自动同步到页面输出目录；`image` / `figure` 的
+  `width` 参数在构建时缩放（如 `photo-400w.jpg`，带指纹缓存）；
+  图片改动自动触发引用页面重建；删除的资源自动清理输出残留
+- Asset pipeline：`[assets] minify = true` 压缩 `static/` 下的
+  CSS/JS（零依赖实现；JS 为保守压缩，见配置参考）；
+  `fingerprint = true` 给 CSS/JS 文件名加内容哈希，
+  模板里用 `{{ asset("style.css") }}` 引用；内容变化自动清理
+  旧指纹文件并触发页面重渲染
+- 嵌套菜单：`[[site.menu.children]]` 可多级嵌套，导航 hover /
+  键盘聚焦时下拉展开；`menu_sort` 过滤器按 weight 排序
+  （缺 weight 不炸模板）
 - 联系表单：`[site.form] endpoint` 填入 Formspree / Getform 等第三方服务地址，
   `/contact.html` 的表单即提交到该地址；留空则显示配置提示
 - 插件：站点根目录建 `plugins/`，每个 `*.py` 自动加载；两种注册方式：
@@ -325,3 +370,9 @@ python -m unittest discover -s tests
 - [x] 联系表单（0.6.0：第三方 endpoint 配置）
 - [x] 主题系统（0.7.0：内置 company/minimal，配置切换 + 站点覆盖）
 - [x] 真正的 rel=canonical（0.7.0）
+- [x] 依赖瘦身：去 PyYAML（自研 front matter 子集）、Pygments/Pillow
+  改可选依赖，基础安装约 2.3MB（0.9.0）
+- [x] Shortcodes（0.9.0：figure/youtube/image + 自定义模板）
+- [x] Page bundles + 构建时图片缩放（0.9.0）
+- [x] Asset pipeline：CSS/JS 压缩 + fingerprint（0.9.0）
+- [x] 嵌套菜单（0.9.0）

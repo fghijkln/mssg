@@ -18,6 +18,15 @@ a:hover{text-decoration:underline}
 .brand:hover{text-decoration:none}
 .site-header nav a{margin-left:1.25rem;color:var(--ink);font-size:.95rem}
 .site-header nav a:hover{color:var(--primary)}
+/* 嵌套菜单：hover / 键盘聚焦时展开下拉 */
+.nav-drop{position:relative;display:inline-block}
+.nav-sub{display:none;position:absolute;top:100%;left:0;min-width:11rem;background:#fff;
+  border:1px solid var(--line);border-radius:.5rem;box-shadow:0 .5rem 1rem rgba(0,0,0,.08);
+  padding:.35rem 0;z-index:30}
+.nav-drop:hover .nav-sub,.nav-drop:focus-within .nav-sub{display:block}
+.nav-sub a{display:block;margin-left:0!important;padding:.5rem 1rem;white-space:nowrap}
+.nav-sub a:hover{background:var(--soft)}
+.nav-sub .nav-sub{top:0;left:100%}
 /* hero */
 .hero{background:linear-gradient(135deg,#1e3a8a,#1d4ed8 60%,#3b82f6);
   color:#fff;padding:4.5rem 0;text-align:center}

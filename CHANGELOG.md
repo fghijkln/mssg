@@ -1,5 +1,38 @@
 # 更新日志
 
+## 0.9.0（2026-10-02）
+
+对标 Hugo 的四项 P0 + 依赖大瘦身（208 测试全绿）：
+
+### 瘦身：往小靠
+
+- 去掉 PyYAML：自研 `mssg/yaml_subset.py` 解析 front matter（标量/列表/
+  嵌套字典/注释/`|` 多行/ISO 日期，覆盖当年修过的所有边界），
+  `mssg admin` 写回 front matter 也用它
+- Pygments → 可选依赖 `mssg[highlight]`：未安装时代码高亮自动降级为
+  普通代码块并警告一次
+- Pillow → 可选依赖 `mssg[images]`：未安装时图片直接拷贝并警告一次
+- 基础安装只剩 Markdown + Jinja2：依赖约 21.8MB → 约 2.3MB（-90%）
+
+### 新功能
+
+- Shortcodes（Hugo `{{< >}}` 语法子集）：内置 `figure`（图注）、
+  `youtube`（隐私增强嵌入）、`image`（见下）；`templates/shortcodes/`
+  下放 `<name>.html` 即可自定义；未知 shortcode 保留原文并警告一次
+- Page bundles：`content/post/x/index.md` 同目录的非 md 资源自动同步到
+  页面输出目录；`image`/`figure` 支持 `width` 参数，构建时缩放
+  （如 `photo-400w.jpg`，带指纹缓存）；shortcode 解析到的依赖文件
+  指纹跟踪——图片改了自动重建缩放图；删除的资源自动清理残留
+- Asset pipeline（零依赖）：`[assets] minify = true` 压缩 CSS/JS
+  （JS 为保守压缩：只去注释和空行，见 README 说明）；
+  `fingerprint = true` 给 css/js 文件名加内容哈希
+  （`style.css` → `style.<8hex>.css`），模板里用
+  `{{ asset("style.css") }}` 引用；内容变化自动清理旧指纹文件并
+  触发全量重渲染
+- 嵌套菜单：`[[site.menu.children]]` 可多级嵌套，主题导航
+  hover/键盘聚焦时下拉展开；新增 `menu_sort` 模板过滤器
+  （按 weight 排序，缺 weight 不炸模板）
+
 ## 0.8.0（2026-10-02）
 
 还清六笔技术债（182 测试全绿）：
